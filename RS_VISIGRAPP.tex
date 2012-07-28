@@ -28,23 +28,24 @@
 
 \keywords{Rendering, cluster computing, distributed rendering}
 
-\abstract{As the quest for more realistic computer graphics marches steadily on, the
-demand for rich and detailed imagery is greater than ever. However, the current
-``sweet spot'' in terms of price, power consumption, and performance is in
-commodity hardware. If we desire to render scenes with tens or hundreds of millions
-of polygons as cheaply as possible, we need a way of doing so that maximizes
-the use of the commodity hardware we already have at our disposal.Techniques such as normal mapping and level of detail have attempted to address
+\abstract{As the quest for more realistic computer graphics marches steadily on,
+the demand for rich and detailed imagery is greater than ever. However, the
+current ``sweet spot'' in terms of price, power consumption, and performance
+is in commodity hardware. If we desire to render scenes with tens or hundreds
+of millions of polygons as cheaply as possible, we need a way of doing so that
+maximizes the use of the commodity hardware that we already have at our disposal.
+Techniques such as normal mapping and level of detail have attempted to address
 the problem by reducing the amount of geometry in a scene. This is problematic
 for applications that desire or demand access to the scene's full geometric
 complexity at render time. More recently, out-of-core techniques have provided
 methods for rendering large scenes when the working set is larger than the
-available system memory.We propose a distributed rendering architecture based on message-passing that
-is designed to partition scene geometry across a cluster of commodity machines
-in a spatially coherent way, allowing the entire scene to remain in-core and
-enabling the construction of hierarchical spatial acceleration structures in
-parallel. The results of our implementation show roughly an order of magnitude
-speedup in rendering time compared to the traditional approach, while keeping
-memory overhead for message queuing around 1\%.
+available system memory. We propose a distributed rendering architecture based
+on message-passing that is designed to partition scene geometry across a cluster
+of commodity machines in a spatially coherent way, allowing the entire scene to
+remain in-core and enabling the construction of hierarchical spatial acceleration
+structures in parallel. The results of our implementation show roughly an order
+of magnitude speedup in rendering time compared to the traditional approach,
+while keeping memory overhead for message queuing around 1\%.
 }
 
 \onecolumn \maketitle \normalsize \vfill
@@ -53,48 +54,42 @@ memory overhead for message queuing around 1\%.
     \centering
     \includegraphics[width=80mm]{showoff/field.png}
 
-    \caption{Field of high resolution models with nearly 87 million triangles.}
+    \caption{Field of high resolution models. The geometric complexity is nearly 87 million triangles.}
     \label{fig:sofield}
 \end{figure}
 
 \section{\uppercase{Introduction}}
-\emph{Rendering}, the process of taking the description of a scene and turning
-it into a visual image, has advanced at an incredible pace in recent
-years. Many techniques have been developed to turn these descriptions into
-pixels, and countless more have targeted weaknesses or challenges with those
-algorithms. At the heart of mimicking reality is describing the world we wish to show. In
-computer graphics, this has traditionally been done by defining surfaces. While
-exciting developments in volume rendering techniques happen on a regular basis,
-it is unlikely we will abandon using surfaces any time soon. Unfortunately for
-volumes, algorithms that operate on them are inherently $n^3$.
+Rendering has advanced at an incredible pace in recent years. At the heart of
+rendering is describing the world we wish to draw, which has traditionally been
+done by defining surfaces. While exciting developments in volume rendering
+techniques happen on a regular basis, it is unlikely we will abandon surface
+rendering any time soon. Unfortunately for volumes, algorithms that operate on
+them are inherently $n^3$.
 
-Many methods have been developed for describing surfaces in computer
-programs, such as level sets, implicitly defined surfaces from mathematical
-equations, and curvilinear forms such as parametric splines. The undisputed
-champion of surface representations, however, has been the polygonal mesh.
-Meshes are efficient to process and easy for artists to work with because they represent discrete
-points in space and the connectivity between those points (rather than abstract
-equations). However, their core advantage is also their core drawback. Because
-everything is defined explicitly, meshes with fine levels of detail have
-significantly higher storage requirements. Thus, as the demand for higher
-visual fidelity increases, the natural tendency is to increase geometric
-complexity.
+The champion of surface representations in rendering, has been the polygonal
+mesh. Meshes are efficient to process and easy for artists to work with because
+they represent discrete points in space and the connectivity between those
+points (rather than abstract equations). However, their core advantage is also
+their core drawback. Because everything is defined explicitly, meshes with fine
+levels of detail have significantly higher storage requirements. Thus, as the
+demand for higher visual fidelity increases, the natural tendency is to increase
+geometric complexity.
 
-Graphics and ray tracing in particular, has long been said to be a problem that is \emph{embarrassingly parallel},
-given that many graphics algorithms operate on pixels independently. Graphics
-processing units (GPUs) have exploited this fact for many years to achieve
-amazing throughput of graphics primitives in real-time.While processor
-architectures have become exceedingly parallel and posted impressive
-speedups, the memory hierarchy has not had time to catch up. For a processor
-to perform well, the CPI, \emph{cycles per instruction}, must remain low to
-ensure time is spent doing useful work and not waiting on data.
+Graphics, and ray tracing in particular, has long been said to be a problem that
+is \emph{embarrassingly parallel}, given that many graphics algorithms operate
+on pixels independently. Graphics processing units (GPUs) have exploited this
+fact for years to achieve amazing throughput of graphics primitives in real-time.
+While processor architectures have become exceedingly parallel and posted
+impressive speedups, the memory hierarchy has not had time to catch up. For a
+processor to perform well, the CPI, \emph{cycles per instruction}, must remain
+low to ensure time is spent doing useful work and not waiting on data.
 
 In current memory hierarchies, data access time can take anywhere from around
 12 cycles (4 nanoseconds for an L1 cache hit) to over 300 cycles (100
 nanoseconds for main memory). Techniques such as out-of-order execution are
 helpful in filling this wasted time, but for memory intensive applications it
 can be difficult to fill all the gaps with useful work. Thus, keeping the chips
-``hot'' by reducing time spent waiting on data is critical to achieve maximum
+``hot'' by reducing time spent waiting on data is critical to achieving maximum
 performance, and is an extremely challenging problem.
 
 \begin{figure}[h!]
@@ -105,18 +100,19 @@ performance, and is an extremely challenging problem.
 \end{figure}
 
 Because of this fact, there is a lot more to parallel rendering than initially
-meets the eye. Graphics may indeed by highly parallel, but its voracious appetite
-for memory access is actively working \emph{against} its parallel efficiency on
-current architectures.
+meets the eye. Graphics may indeed by highly parallel, but its voracious
+appetite for memory access is actively working \emph{against} its parallel
+efficiency on current architectures.
 
 This paper presents the architecture of FlexRender, a ray tracer designed for
 rendering huge scenes with high geometric complexity on commodity hardware. We
 specifically target commodity hardware because it currently has an excellent
 cost to performance ratio, but still typically lacks enough memory to fit large
-scenes entirely in RAM.  Current strategies for parallelizing a renderer across a cluster of commodity
-machines are limited to having each worker compute a separate ``slice'' of the
-image, but do nothing to manage the high cost associated with large scene
-assets.
+scenes entirely in RAM. Current strategies for parallelizing a renderer across
+a cluster of commodity machines are limited to having each worker compute a
+separate ``slices'' of the image (or frames of an animation), but do nothing to
+manage the cost associated with large scene assets that do not fit into main
+memory.
 
 Thus, our work describes the following core contributions:
 
@@ -125,26 +121,32 @@ Thus, our work describes the following core contributions:
         commodity machines to keep the entire scene in-core.
     \item A method for passing ray messages between workers in the cluster with
         enough state to never require a reply message.
-    \item An extension to the stackless BVH traversal algorithm presented by
-        Hapala et al. \cite{hapala:2011} that makes it possible to suspend
-        traversal at one worker and resume it at another.
+    \item An extension to a stackless BVH traversal algorithm \cite{hapala:2011}
+        that makes it possible to suspend traversal at one worker and resume it
+        at another.
     \item A discussion of the concepts involved and an analysis of the resulting
         implementation.
 \end{enumerate}
 
 In particular, we show that FlexRender can achieve speedups that are around an
-order of magnitude better than the traditional parallelization approach, and can
-naturally self-regulate the cluster of workers to keep the memory overhead due
-to message queuing around 1\% of each worker's system memory.
+order of magnitude better than the traditional parallelization approach for
+commodity machines, and can naturally self-regulate the cluster of workers to
+keep the memory overhead due to message queuing around 1\% of each worker's
+main memory.
 
 \section{Background}
 \label{background}
 
-The FlexRender architecture builds on the four fundamental building blocks
-radiometrey, ray tracing\cite{appel:1968}, \cite{whitted:1980}, bounding volumes and Morton coding.
-\paragraph{Radiometry and ray tracing}For a more  complete treatment of radiometry in the context of rendering algorithms and ray tracing in general, we refer
-the reader to \emph{Physically Based Rendering} \cite{pbrt}.  The fundamentral parts of the 
-radiometry model with respect to FlexRender are the following:
+The FlexRender architecture builds on four fundamental building blocks:
+Radiometry, ray tracing \cite{appel:1968} \cite{whitted:1980}, bounding volume
+hierarchies, and Morton coding.
+
+\subsection{Radiometry and Ray Tracing}
+
+For a complete treatment of radiometry in the context of rendering algorithms
+and ray tracing in general, we refer the reader to
+\emph{Physically Based Rendering} \cite{pbrt}. For the purposes of FlexRender,
+we note the following observations of the radiometry model of light:
 
 \begin{description}
     \item[Light behaves linearly.] The combined effect of two rays of light
@@ -154,14 +156,13 @@ radiometry model with respect to FlexRender are the following:
         never do so with more energy than it started with.
 \end{description}
 
-In particular, these assumptions allow us to make the following key
-observations, which FlexRender explicitly exploits:
+FlexRender exploits these observations in the following ways:
 
 \begin{description}
     \item[The location of computation does not matter.] If the scene is
         distributed across many machines, it makes no difference which machine
-        computes the effect of a ray. The sum of everyone's computations
-        will be the same as if all the work was performed on a single machine.
+        computes the effect of a ray. The sum of all computations will be the
+        same as if all the work was performed on a single machine.
     \item[Transmittance models energy conservation.] If we store the amount of
         energy traveling along a ray (the \emph{transmittance}) with the ray
         itself, we need not know anything about the preceding rays or state
@@ -170,34 +171,26 @@ observations, which FlexRender explicitly exploits:
         conservation are both respected.
 \end{description}
 
+\subsection{Bounding Volume Hierarchies}
 
-\paragraph{BVH} Bounding volume hierarchies, or BVHs, are essentially an application of binary
-search to 3D space. BVHs are trees where each node is defined by a bounding volume, such as a box
-or a sphere, that describes the extents of a region of 3D space. All of the
-primitives in the scene that are within that region of space are child nodes
-in the tree.  After the tree structure is built using a typical linked-memory data structure,
-it is flattened into a linear array of nodes for storage efficiency and better
-cache performance. Flattening is done by walking the tree in a depth-first
-traversal. This means that the left-hand child of the node at index $n$ is
-located at index $n + 1$ in the array of nodes. Each node stores an offset
-index to its right-hand child. Because the indices are relative to the array
-and not the array's location in memory, they are safe to pass back and forth
-between different machines and require no address translation.
+Bounding volume hierarchies, or BVHs, are an application of binary search to 3D
+space. BVHs are trees where each node is defined by a bounding volume, such as
+a box or a sphere, that describes the extents of some region of space. All of
+the primitives in the scene that are within that region are child nodes in the
+tree.
 
-The traversal algorithm of BVH trees is naturally recursive, but recursive implementations
-keep their state on the call stack. In FlexRender, we may need to suspend the
-traversal on one machine and resume it on another, so we need all of the
-traversal state explicitly exposed. Refactoring it as an iterative traversal
-explicitly exposes the state for capturing.  The iterative algorithm still requires a traversal stack of child nodes that
-need to be visited on the way back up the tree. Since this stack is unique for
-each ray, the entire stack would need to be carried along with each ray. In
-addition, the stack could potentially be large if the scene is huge (and thus,
-the tree is deep), so it would be ideal if we had a method for traversing the
-tree iteratively without the need to maintain a traversal stack.
+The traversal algorithm of a BVH is naturally recursive, but recursive
+implementations keep their state on the call stack. In FlexRender, we may need
+to suspend the traversal on one machine and resume it on another, so we need
+all of the traversal state explicitly exposed. Refactoring it as an iterative
+traversal explicitly exposes the state for capturing, but unfortunately it still
+requires a traversal stack of child nodes that must be visited on the way back
+up the tree. In FlexRender, rays carry all necessary state along with them,
+and this approach would require the entire stack to be included as ray state.
 
-A method for doing so is described by Hapala et al. in
+However, a stackless traversal method is described in
 \emph{Efficient Stack-less BVH Traversal for Ray Tracing} \cite{hapala:2011}.
-Their key insight is that if parent links are stored in the tree, the same
+The key insight is that if parent links are stored in the tree, the same
 traversal can be achieved using a three-state automaton describing the direction
 you came from when you reached the current node (i.e. from the \emph{parent},
 from the \emph{sibling}, or from the \emph{child}). They show that their
@@ -206,11 +199,12 @@ have already been tested.
 
 FlexRender leverages this traversal algorithm due it its low state storage
 requirements. Each ray only needs to know the index of the current node it is
-traversing (in the array of flattened nodes) and the state of the traversal
-automaton. The extensions made to the algorithm to support suspending traversal
-and resuming it on another machine are described in Section \ref{traversal}.
+traversing and the state of the traversal automaton. Our extensions to support
+suspending traversal and resuming it on another machine are described in detail
+in Section \ref{traversal}.
 
-\paragraph{Morton Coding and the Z-Order Curve}
+\subsection{Morton Coding and the Z-Order Curve}
+
 Morton coding is a method for mapping coordinates in multidimensional space to
 a single dimension. In particular, walking the multidimensional space with a
 Morton coding produces a space-filling Z-order curve.
@@ -226,20 +220,21 @@ More concretely, FlexRender needs a way to distribute a large scene to all the
 machines in the cluster in a spatially coherent way. If the geometry on each
 machine consists of a localized patch of the overall geometry, it allows us to
 minimize communication between the machines, and thus, only pay the network cost
-when we absolutely need to .
+when we absolutely need to.
 
 Because the Morton coding produces a spatially coherent traversal of 3D space,
 dividing up the 1D Morton code address space among all the machines participating
 in the render gives a reasonable assurance of spatial locality for the geometry
-sent to each machine.  The Morton coding is relatively simple to implement. For example, say that
-we wish to map a point $P$ in a region of 3D space (defined by its bounding extents
-$min$ and $max$) to a Morton coded 64-bit integer. Discretizing each axis evenly
-allows for 21 bits per axis, yielding a 63-bit address space (and one unused bit
-in the integer).  Computing the Morton code is simply a matter of calculating the 21-bit discretized
-component of $P$ along each axis, then shifting the components from each axis
-into the 64-bit integer one bit at a time in a round robin fashion, from the
-most-significant to least-significant bit.
+sent to each machine.
 
+The Morton coding is also simple to implement. For example, say that we wish to
+map a point $P$ in a region of 3D space (defined by its bounding extents
+$min$ and $max$) to a Morton-coded 64-bit integer. Discretizing each axis evenly
+allows for 21 bits per axis, yielding a 63-bit address space (and one unused bit
+in the integer). We compute the Morton code by calculating the 21-bit
+discretized component of $P$ along each axis, then shifting the components from
+each axis into the 64-bit integer one bit at a time in a round robin fashion, from the
+most-significant to least-significant bit.
 
 \section{Related Work}
 \label{relatedwork}

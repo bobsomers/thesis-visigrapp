@@ -385,6 +385,13 @@ However, there is no architectural restriction preventing such measures. For
 topics involving the design of robust and resilient clusters, we refer the
 reader to the distributed systems literature.
 
+The graphics machinery is fairly straightforward. A \emph{scene} consists of a
+collection of \emph{meshes}, which are stored as indexed face sets of vertices
+and faces. Each mesh is a assigned a \emph{material}, which consists of a
+\emph{shader} and potentially a set of bindings from \emph{textures} to names
+in the shader. A \emph{shader} is a small program that computes the lighting on
+the surface at a particular point.
+
 \subsection{Fat Rays}
 \label{fatrays}
 
@@ -396,39 +403,29 @@ consist of only the geometric components.
 Specifically, a fat ray contains the following data:
 
 \begin{itemize}
-    \item The \textbf{type of ray} this is. Described in Section \ref{process}.
+    \item The \textbf{type of ray} this is. See Section \ref{process}.
     \item The \textbf{source pixel} that this ray contributes to.
     \item The \textbf{bounce count}, or number of times this ray has reflected
         off a surface (to prevent infinite loops).
-    \item The \textbf{origin and direction} of the ray.
-    \item The ray's \textbf{transmittance}, or the amount that it contributes
-        to the source pixel.
-    \item The \textbf{emission} from a light source carried along the ray (if
-        any). Described in Section \ref{illumination}.
-    \item The \textbf{target intersection point} of the ray, if any. Described
-        in Section \ref{illumination}.
-    \item The \textbf{traversal state} of the top-level BVH. Described in
-        Section \ref{traversal}.
+    \item The \textbf{origin} and \textbf{direction} of the ray.
+    \item The ray's \textbf{transmittance}, (related to the amount of its final
+        pixel contribution).
+    \item The \textbf{emission} from a light source carried along the ray, if
+        any. See Section \ref{illumination}.
+    \item The \textbf{target intersection point} of the ray, if any. See
+        Section \ref{illumination}.
+    \item The \textbf{traversal state} of the top-level BVH. See Section \ref{traversal}.
     \item The \textbf{hit record}, which contains the worker, mesh, and $t$
         value of the nearest intersection.
-    \item The \textbf{current worker} this ray should be sent to over the
+    \item The \textbf{current worker} this ray should be forwarded to over the
         network.
-    \item The \textbf{number of workers touched} by the ray so far. Not
-        necessary for rendering. Only used for analysis.
-    \item A \textbf{next pointer} for locally queuing rays as described in
-        Section \ref{queues}. Obviously not valid over the network.
+    \item The \textbf{number of workers touched} by the ray. (Not
+        used for rendering, only analysis.)
+    \item A \textbf{next pointer} for locally queuing rays. Obviously invalid
+        over the network. See Section \ref{queues}.
 \end{itemize}
 
 In total, the size of a fat ray is 128 bytes.
-
-\paragraph{General Types}
-The core graphics machinery in FlexRender is fairly straightforward. A scene consists
-of a collection of \emph{meshes}, which are stored as indexed face sets of vertices
-(positions with normals and texture coordinates) and faces.  Each mesh is a assigned a \emph{material}, which is responsible for drawing the
-mesh. A material consists of a \emph{shader} and potentially a set of bindings
-from \emph{textures} to names in the shader.  A \emph{shader} is a piece of code that is run to compute the lighting on a
-surface at a particular point.
-
 
 \subsection{Render Preparation}
 \label{prep}

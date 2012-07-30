@@ -361,36 +361,37 @@ detail.
 There are two potential roles a machine can play during the rendering process.
 
 \begin{description}
-    \item[Worker] These machines receive a chunk of the scene and act as ray
-        processors to compute intersections and shading values. They produce
-        an image that is a component of the final render. There may be an
-        arbitrary number of them participating in a render.
-    \item[Renderer] This machine reads in the scene data and distributes it to
-        the workers. Once rendering begins it monitors the status of the each
-        worker and halts any potential runaway situations (see Section \ref{primaryrays}).
-        When the renderer decides the process is complete, it requests
-        the image components from each worker and merges them into the final
-        image. There is only a single renderer in any given cluster and it is
-        the machine the user directly interacts with.
+    \item[Worker] These machines receive a region of the scene and act as ray
+        processors, finding intersections computing shading. They produce an
+        image that is a component of the final render. There may be an
+        arbitrary number of workers participating.
+    \item[Renderer] This machine distributes scene data to the workers. Once
+        rendering begins it monitors the status of the workers and halts any
+        potential runaway situations (see Section \ref{primaryrays}). When the
+        renderer decides the process is complete, it requests the image
+        components from each worker and merges them into the final image.
+        There is only a single renderer in any given cluster.
 \end{description}
 
-From a network perspective, the architecture is simply client/server connected
-in a star topology. Each worker exposes a server which receives and
-processes messages, and holds client connections open to every other worker for
-passing messages around the cluster. The renderer also holds a client connection
-to every worker for sending configuration data, preparing the cluster for rendering
-(described in Section \ref{sync}), and monitoring render progress (described in
-Section \ref{stats}).  The current version of FlexRender does not include fault tolerance,
-however, there is no architectural reason that the system could not be made
-more robust and fault tolerant. 
+The network architecture is client/server connected in a star topology. Each
+worker exposes a server which processes messages and holds client connections
+open to every other worker for passing messages around the cluster. The renderer
+also holds a client connection to every worker for sending configuration data,
+preparing the cluster for rendering (described in Section \ref{prep}), and
+monitoring render progress (described in Section \ref{completion}).
+
+The current implementation does not include any provisions for fault tolerance.
+However, there is no architectural restriction preventing such measures. For
+topics involving the design of robust and resilient clusters, we refer the
+reader to the distributed systems literature.
 
 \subsection{Fat Rays}
 \label{fatrays}
 
-The currency of computation and core message type in FlexRender is the
-\emph{fat ray}. They are so named because they carry additional state
-information along with their geometric definition of an origin and a direction.
-Their counterparts, \emph{slim rays}, consist of only the geometric components.
+The core message type in FlexRender is the \emph{fat ray}. They are so named
+because they carry additional state information along with their geometric
+definition of an origin and a direction. Their counterparts, \emph{slim rays},
+consist of only the geometric components.
 
 Specifically, a fat ray contains the following data:
 

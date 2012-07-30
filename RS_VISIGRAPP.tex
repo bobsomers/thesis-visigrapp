@@ -142,6 +142,7 @@ Radiometry, ray tracing \cite{appel:1968} \cite{whitted:1980}, bounding volume
 hierarchies, and Morton coding.
 
 \subsection{Radiometry and Ray Tracing}
+\label{radiometryraytracing}
 
 For a complete treatment of radiometry in the context of rendering algorithms
 and ray tracing in general, we refer the reader to
@@ -172,6 +173,7 @@ FlexRender exploits these observations in the following ways:
 \end{description}
 
 \subsection{Bounding Volume Hierarchies}
+\label{bvhs}
 
 Bounding volume hierarchies, or BVHs, are an application of binary search to 3D
 space. BVHs are trees where each node is defined by a bounding volume, such as
@@ -204,6 +206,7 @@ suspending traversal and resuming it on another machine are described in detail
 in Section \ref{traversal}.
 
 \subsection{Morton Coding and the Z-Order Curve}
+\label{mortoncoding}
 
 Morton coding is a method for mapping coordinates in multidimensional space to
 a single dimension. In particular, walking the multidimensional space with a
@@ -239,110 +242,82 @@ most-significant to least-significant bit.
 \section{Related Work}
 \label{relatedwork}
 
-Large scale geometry is not new to computer graphics and a variety of algorithms have been developed
-to simulate high resolution details.  For example, displacement maps\cite{krishnamurthy:1996} and 
-normal maps using texture data\cite{cohen:1998} and \cite{cignoni:1998}.
-Normal mapping is extensively used today, especially in real-time graphics
-applications. However, it displays visual artifacts, particularly around the
-edges of the mesh (where it is clearly apparent the surface is not high detail)
-or areas where the texture is scrunched or stretched.  Similarly, level of detail is a technique for replacing high resolution meshes with lower
-resolution versions when they are some specified distance away from the viewer~\cite{clark:1976}.
-This technique is also still heavily used in real-time graphics applications today. However it requires the
-creation of multiple resolution meshes and algorithms to handle resolution changes.
+\subsection{Large Geometry}
+\label{largegeometry}
 
-Recent research have acknowledged that rendering data simply will not fit into
-main memory any more, and have developed techniques for efficiently managing
-a cache of rendering data in main memory. In 2011, \cite{tabellion:2011}
-presented a technique for dealing with huge point clouds used in global
-illumination. They showed that their method can process 88 GB of point cloud
-data with a cache of just 2 GB, and can render 6.8 GB of point cloud data with
-cache hit rates of over 99\%.  One year earlier, Pantaleoni et at. \cite{pantaleoni:2010} showed that their
-software developed for Avatar also was very efficient at dealing with out-of-core
-data. They used ray tracing to generate directional occlusion data, which was
+A variety of computer graphics algorithms are designed to handle large-scale
+geometry. Displacement maps \cite{krishnamurthy:1996} and normal maps using
+texture data \cite{cohen:1998} and \cite{cignoni:1998} are commonly used,
+especially in real-time applications. However, normal mapping displays visual
+artifacts, particularly around the edges of the mesh (where it is clearly
+apparent the surface is not high detail) or in areas where the texture is
+scrunched or stretched. Similarly, level of detail is commonly used to replace
+high resolution meshes with lower resolution versions when they are far enough
+away from the viewer \cite{clark:1976}. However, it requires the creation of
+multiple resolution meshes and algorithms to smoothly handle resolution changes.
+
+Recent research has acknowledged that rendering data simply will not fit into
+main memory any more, and has focused on techniques for efficiently using main
+memory as a cache. In 2011, \cite{tabellion:2011} presented a technique for
+dealing with huge point clouds used in point-based global illumination. They
+showed that their method can process 88 GB of point cloud data with a cache of
+just 2 GB, and can render 6.8 GB of point cloud data with cache hit rates of
+over 99\%. One year earlier, \cite{pantaleoni:2010} showed that the software
+they developed for Avatar was also very efficient at dealing with out-of-core
+data. They generated directional occlusion data using ray tracing, which was then
 compressed into spherical harmonics. The spherical harmonics were used at render
-time (they did not directly ray trace the scenes during rendering). In particular,
-they also used hierarchical BVHs with a single ``top-level'' tree as FlexRender
-does. However, they used it for chunking the scene into manageable units of work
-that could be loaded and unloaded from main memory quickly.
+time (they did not directly ray trace the scenes during rendering). They used
+hierarchical BVHs with a single ``top-level'' tree, which FlexRender also does.
+However, they used it for chunking the scene into manageable units of work that
+could be loaded and unloaded from main memory quickly.
 
-\paragraph{Parallel Rendering}
+\subsection{Parallel Rendering}
 \label{parallelbg}
 
-Without a doubt, the most similar piece of research to FlexRender is Kilauea
-\cite{kato:2002}, a massively parallel networked renderer developed at Square
-USA in 2002. Similarly to our work, it uses worker machines connected on a
-network to keep the entire scene geometry in core. However, there are three
-main differences in our approach.
+The most similar research to FlexRender is Kilauea \cite{kato:2002}, a massively
+parallel networked ray tracer developed at Square USA in 2002. Similarly to our
+work, it uses worker machines connected on a network to keep the entire scene
+geometry in core. However, there are three main differences in our approach.
 
-\begin{description}
-    \item[Geometry Distribution] \hfill \\
-        Kilauea randomly distributes scene geometry to
-        its workers, then casts intersections rays through all workers
-        simultaneously. This may produce multiple candidate intersections. The
-        results from each worker are gathered and a winner is picked using a
-        standard depth test. This makes the pipeline highly sensitive to extra
-        latency on any of the workers, because everyone is waiting for the
-        results to run the depth test.
+\begin{enumerate}
+    \item \textbf{Geometry Distribution.}
+        Kilauea randomly distributes geometry to its workers, then casts
+        intersection rays through all workers simultaneously. The closest
+        intersection is resolved from each worker's best candidate with a
+        depth test. FlexRender distributes geometry such that workers ``own''
+        a spatially local region, and passes rays between workers as they move
+        through those regions.
 
-        In contrast, FlexRender attempts to keep geometry spatially local among
-        its worker machines. This allows us to build a hierarchical spatial acceleration
-        structure over the workers and reduce the number of network hops we need
-        to make to establish the correct intersection.
-    \item[Shading Secondary Rays] \hfill \\
-        When Kilauea decides to compute the shading value of a bounced ray, it
-        suspends execution of the shader and keeps it around until the bounced
-        ray comes back through the system. Similarly to FlexRender, they keep
-        a priority queue for rays to process those most likely to terminate
-        first.
+    \item \textbf{Shading.}
+        Kilauea suspends the execution of shaders for bounced rays, and resumes
+        them when the rays come back through the system. It stores rays in a
+        priority queue, sorted by termination likelihood. FlexRender maintains
+        a similar priority queue, but carries source pixel and transmittance
+        information along with each ray, making the suspension of shaders (and
+        the associated overhead) unnecessary.
 
-        FlexRender maintains the source pixel and transmittance of each ray as
-        state, so the suspension of shaders (and associated overhead) is
-        unnecessary. Each worker has its own image buffer, which is composited
-        into the final image at the end, respecting linearity.
-    \item[Adaptability to Heterogeneous Architectures] \hfill \\
-        Because Kilauea needs the results from every worker before performing
-        the depth test, it is extremely latency sensitive. This encourages
-        homogeneity among workers, and makes adding new workers into the cluster
-        with vastly different machine architectures (such as GPGPU) or performance
-        characteristics problematic.
+    \item \textbf{Latency Sensitivity.}
+        Kilauea needs intersection results from every worker before proceeding
+        with depth testing and shading, making the pipeline latency-sensitive.
+        FlexRender computations are never waiting on results from another worker,
+        so rendering clusters of hetergeneous machines (for example, CPU/GPU
+        hybrid clusters) are not performance bottlenecks.
+\end{enumerate}
 
-        In contrast, workers in a FlexRender cluster are never waiting on
-        the results from another worker. Thus, new machines can be dropped into the
-        cluster without regard for how they will effect the latency of the entire
-        system. For example, a GPGPU worker might batch up requests and outsource
-        them to the GPU only when it can effectively amortize the cost of the
-        memory bus transfer.
-\end{description}
+Using GPGPU techniques, \cite{garanzha:2011:ray}, presented a
+method for ray tracing large scenes that are out-of-core on the GPU. Parts of
+their architecture are similar to FlexRender on a single-device scale,
+specifically their use of heirarchical BVHs and ray queues to handle rays cast
+from shaders. However, the global ray queue is fairly memory intensive,
+potentially storing up to 32 million rays.
 
-\paragraph{General Purpose GPU Rendering}
-\label{gpgpu}
-
-As interest in General Purpose GPU, or GPGPU, computing has increased over
-the last several years, many have decided to port ray tracers to the
-architecture due to the problem's ``embarrassingly parallel'' nature. 
-Probably the most impressive recent work was done by Garanzha et al.
-\cite{garanzha:2011:ray}, which presented a method for ray tracing large scenes that
-are out-of-core on the GPU. Parts of their architecture are similar to FlexRender
-on a single-device scale, specifically their use of multi-level BVHs for data that
-is paged into memory and their use of ray queues to handle rays cast from shaders.
-Their global ray queue, however, is fairly memory intensive, because it can
-potentially store up to 32 million rays.
-
-Another area of intense research has been spatial data structure construction
-on the GPU. Although they usually produce data structures of slightly lower
-quality than their CPU counterparts, these GPU algorithms go to great lengths
-to produce ``high-enough'' quality structures with dramatic speedups. Garanzha
-et al. \cite{garanzha:2011:bvh} present a method for constructing BVHs on the
-GPU and Wu et al. \cite{wu:2011} present a method for constructing KD-trees on
-the GPU. Both are guided by the surface area heuristic.
-
-Finally, Northam and Smits \cite{northam:2011} presented a potential MapReduce\cite{dean:2004}
+Leveraging MapReduce \cite{dean:2004}, \cite{northam:2011} presented an
 implementation of a ray tracer, but noted that sending large amounts of scene
-data to the workers significantly slowed down scene processing. Their solution
-was to break the scene into small chunks and resolve the winning intersection
-test in the reduce step. While this works just fine, it also does a lot of
-unnecessary work, because many non-winning intersections are computed that
-would have been pruned in a typical BVH traversal.
+data to workers significantly slowed down processing. Their solution was to
+break the scene into small chunks and resolve the intersection tests in the
+reduce step. Unfortunately, this does a lot of unnecessary work, because many
+non-winning intersections are computed that would have been pruned in a typical
+BVH traversal.
 
 \section{FlexRender Architecture}
 \label{architecture}

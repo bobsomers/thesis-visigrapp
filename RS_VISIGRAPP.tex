@@ -430,63 +430,53 @@ In total, the size of a fat ray is 128 bytes.
 \subsection{Render Preparation}
 \label{prep}
 
-Render preparation consists of ensuring that all the workers agree on the
-basic rendering parameters, distributing the scene assets to each worker, and
-building the distributed bounding volume hierarchy. 
-The configuration consists of basic information about how the scene is to be
-rendered, such as the image dimensions, the workers participating in the render,
-etc. In addition, the configuration specifies the minimum and maximum bounding
-extents of the scene. This is used in the asset distribution step for driving
-the Morton coding discretization along each axis.
+First, the renderer ensures that all the workers agree on basic rendering
+parameters, such as the minimum and maximum extents of the scene, which is used
+for driving Morton coding discretization along each axis. Once this data has
+been synchronized with all workers, each worker establishes client connections
+with every other worker that remain open for the duration of the render.
 
-Once the renderer has read in the configuration, it opens client connections
-to each worker and sends the configuration data to them. Similarly, each worker
-opens a client connection to every other worker. These renderer/worker and
-worker/worker connections remain open for the duration of the render.
 The renderer then divides up the 63-bit Morton code address space evenly by the
-number of workers participating and assigns a region of it to each one.  Finally, the renderer begins reading in and parsing the scene data. As each mesh
-is loaded, the renderer takes the following actions:
+number of workers participating and assigns ranges of the address space (which
+translate into regions of 3D space) to each worker. At this point the renderer
+begins reading in scene data and takes the following actions with each mesh:
 
 \begin{enumerate}
-   \item Computes the centroid of the mesh by averaging its vertices.
-   \item Computes the Morton code of the mesh centroid. This determines
-      which worker the mesh will be sent to.
-   \item Ensures that any asset dependencies (such as materials,
-      shaders, and textures) for this mesh have been sent to the designated worker.
-   \item Sends the mesh data to the designated worker.
-   \item Deletes the mesh data from its own memory.
+    \item Compute the centroid of the mesh by averaging its vertices.
+    \item Compute the Morton code of the mesh centroid. The range this falls in
+        determines which worker the mesh will be sent to.
+    \item Ensure that any asset dependencies (such as materials, shaders, and
+        textures) for this mesh are present on the designated worker.
+    \item Send the mesh data to the designated worker.
+    \item Delete the mesh data from renderer memory.
 \end{enumerate}
 
 Although the current implementation reads scene data in at the renderer
-and distributes it over the network, there is no inherent reason why it needs to
-do so. For example, if all the workers have access to the scene data over network
-storage, the renderer could simply tell each worker the range of the Morton code
-address space it is responsible for and let them load the scene data themselves,
-carefully throwing out any geometry that is not within their Morton bounds.
+and distributes it over the network, there is no inherent reason why it needs
+to do so. For example, if all workers have access to shared network storage,
+the renderer could simply instruct each worker to load a particular mesh itself,
+reducing load time.
 
-\subsubsection{Parallel Construction of Spatial Acceleration Structures}
+\subsubsection{Parallel Construction of Bounding Volume Hierarchies}
 \label{parallelbvh}
 
-To accelerate intersection testing against each mesh, each worker first
-constructs a BVH for every mesh it has. These BVHs are tied directly to the mesh
-they represent. While building each BVH, the worker stores a list of the bounding
+First, workers construct a BVH for each mesh they have for accelerating spatial
+queries against the mesh. While building each BVH, the worker tracks bounding
 extents of each mesh.
 
-Next, each worker builds a root BVH for the entire worker, which uses the mesh
-extents for its leaf nodes. When testing for intersections locally, a worker
-first tests against this root BVH to determine candidate meshes, then traverses
-each mesh's individual BVH to compute absolute intersections. After construction
-of this root BVH, the root node's bounding extents will describe the spatial
-extent of all geometry located on that worker.
+Next, workers build a root BVH for the entire region owned by the worker with
+the mesh extents as its leaf nodes. When testing for intersections locally, a
+worker first tests against this root BVH to determine candidate meshes, then
+traverses each mesh's individual BVH to compute absolute intersections. After
+construction of this root BVH, the root node's bounding extents describe the
+spatial extent of all geometry owned by the worker.
 
-Once construction of all the local BVHs is complete, each worker sends its
-total bounding extents to the renderer. Once the renderer has the bounding
-extents of each worker, it constructs a final ``top-level'' BVH of the workers.
-The renderer then distributes this top-level BVH to all the workers, so that
-everyone participating has an identical copy of it. This is a very quick and
-lightweight process, since it is only dependent on the number of workers
-participating in the render.  This top-level BVH will be used to direct where we pass rays over the network
-in Section \ref{traversal}.
+Once construction of all local BVHs is complete, workers send their root
+bounding extents to the renderer. The renderer then constructs a final top-level
+BVH with worker extents as its leaf nodes. This top-level BVH is then distributed
+to all workers. This is a quick and lightweight process, since the number of nodes
+is only $2n - 1$, where $n$ is the number of workers. This top-level BVH guides
+where rays are sent over the network in Section \ref{traversal}.
 
 \subsection{Ray Processing}
 \label{process}

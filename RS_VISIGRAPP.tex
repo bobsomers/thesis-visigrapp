@@ -325,32 +325,31 @@ BVH traversal.
 In general, rendering with FlexRender proceeds in the following way:
 
 \begin{enumerate}
-    \item The renderer reads in the scene data and defines the maximum bounding
-        extents of the entire scene. As data is read in, it is distributed to
-        the workers using the Morton coding.
+    \item Read in the scene data and define the maximum bounding extents of the
+        entire scene. As data is read in, it is distributed to the workers using
+        the Morton coding.
     \item Once the scene is distributed, workers build BVHs in parallel for
-        their respective ``chunk'' of the scene. They share their maximum bounding
-        extents with the renderer.
-    \item The renderer constructs a ``top-level'' BVH from the worker bounds and
-        shares this BVH with all the workers.
-    \item Each worker creates its own image buffer. This is where any shading
-        data will be written if it occurs on this worker.
-    \item Each worker begins casting primary rays from the camera and tests for
-        intersections (to find the nearest geometry that the ray hits).
+        their respective local region of the scene. When complete, they send
+        their maximum bounding extents to the renderer.
+    \item The renderer constructs a top-level BVH from each of the workers'
+        bounds and sends this top-level BVH to all the workers.
+    \item Workers create image buffers. All shading computed on a worker is
+        written to its own buffer. 
+    \item Workers cast primary rays from the camera and test for intersections.
         \begin{itemize}
             \item During intersection testing, rays may be forwarded over the
-                network to another worker if they travel through the bounding
-                extents of that worker.
-            \item Once the nearest intersection is found illumination ray messages are
-                created and sent to workers that have lights. These workers
-                send light rays back towards the point of intersection to test
-                for occlusion.
-            \item If the light rays reach the intersection, the point is shaded
-                because it is in direct view of the light.
+                network to another worker if they need to test geometry within
+                the bounding extents of that worker.
+            \item Once the nearest intersection is found, illumination ray
+                messages are created and sent to workers that have lights.
+                These workers send light rays back towards the point of
+                intersection to test for occlusion.
+            \item If the light rays reach the original intersection, the point
+                is illuminated and the worker computes shading.
         \end{itemize}
     \item Once all rays have been accounted for, workers send their image
-        buffers back to the renderer, which composites them all together into
-        a final image.
+        buffers back to the renderer, which composites them together into a
+        final image.
 \end{enumerate}
 
 In the next few sections, we will examine each part of this process in greater

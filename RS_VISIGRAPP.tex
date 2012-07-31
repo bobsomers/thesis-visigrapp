@@ -481,23 +481,22 @@ where rays are sent over the network in Section \ref{traversal}.
 \subsection{Ray Processing}
 \label{process}
 
-At their core, workers are essentially just multithreaded ray processors. Once
-rendering begins, they continually pull rays out of the ray queue, schedule them onto the thread pool, and process them
-when the thread is run. This processing step consists of testing for intersection,
-potentially forwarding the ray to another worker,
+Workers are essentially just multithreaded ray processors. Once rendering begins,
+they continually pop rays from the ray queue, schedule them onto the thread pool,
+and process them when the thread is run. This processing step consists of
+testing for intersection, potentially forwarding the ray to another worker,
 or computing shading values if the ray terminates.
 
-There are three different types of rays in FlexRender:
+There are three different types of rays:
 
 \begin{itemize}
-   \item \textbf{Intersection rays} are rays whose sole purpose is to identify
-      a point in space at which we would like to compute shading.
-   \item \textbf{Illumination ray messages} are essentially copies of intersection
-      rays that have terminated. They are sent to workers who have emissive
-      geometry (described in Section \ref{illumination}).
-   \item \textbf{Light rays} are Monte Carlo samples that contribute direct
-      illumination to a point that a worker is shading (described in Section
-      \ref{illumination}).
+    \item \textbf{Intersection rays} identify points in space at which we would
+        like to compute shading.
+    \item \textbf{Illumination ray messages} are copies of intersection rays that
+        have terminated. They are sent to workers who have emissive geometry.
+        See Section \ref{illumination}.
+    \item \textbf{Light rays} are Monte Carlo samples that contribute direct
+        illumination to a point being shaded. See Section \ref{illumination}.
 \end{itemize}
 
 \begin{figure}[h!]
@@ -507,68 +506,63 @@ There are three different types of rays in FlexRender:
     \label{fig:raytypes}
 \end{figure}
 
-An important point to note about these rays is the sequence of their lifetimes.
-Their purposes will become more clear in the following sections, but the order
-is as follows:
+An important point is the sequence of their lifetimes. The order is as follows:
 
 \begin{enumerate}
-   \item An intersection ray is cast into the scene.
-   \item When that intersection ray terminates at a point in space, it dies and
-      spawns illumination ray messages.
-   \item When those illumination ray messages reach their destination, they die and
-      spawn light rays.
-   \item When those light rays terminate at a point in space, a shading value
-      is computed.
+    \item An intersection ray is cast into the scene.
+    \item When that intersection ray terminates at a point in space, it dies and
+        spawns an illumination ray message sent to each worker with emissive
+        geometry.
+    \item When those illumination ray messages are delivered, they die and spawn
+        light rays cast toward the original intersection.
+    \item When those light rays terminate, they die. If they terminate at the
+        original intersection, the worker computes shading for it.
 \end{enumerate}
 
-From this sequence of lifetimes, it should be apparent that a single intersection
-ray can spawn many additional rays. It should also be apparent that light rays
-are the most likely to die without generating more rays.
+It should be apparent that a single intersection ray can spawn many additional
+rays. It should also be apparent that light rays are the most likely to terminate
+without generating additional rays.
 
 \subsubsection{Illumination}
 \label{illumination}
 
-There is no special ``light'' type in FlexRender, rather only meshes that are
-emissive, which is a property set by the assigned material. Meshes that are
-emissive are known to inject light into the scene through a special function in
-their shader which is called to compute that emission. During scene loading,
-the renderer maintains a list of all workers that have received at least one
-emissive mesh. This list is synchronized with all workers right before
-rendering begins.
+There is no special ``light'' type, only meshes that are emissive, which is a
+property set by the assigned material. Emissive meshes are known to inject
+light into the scene through their shader. During scene loading, the renderer
+maintains a list of workers that have been sent at least one emissive mesh and
+sends the list to all workers before rendering begins.
 
-Once a point has been identified for shading with intersection testing, we
-need to determine the visibility of that point with respect to the light sources
-in the scene. In a traditional ray tracer, you simply cast rays from the point
-of intersection to samples on the surface of the light to determine visibility.
-However in FlexRender, from the perspective of the worker doing the shading,
-we have no idea where all the of the lights in the scene are, or more importantly,
-if there is any geometry occluding the light and casting the intersection in
-shadow.
+Once intersection testing has identified a point has been for shading, we
+must determine the visibility of light sources from that point. In a traditional
+ray tracer, shadow rays are cast from the point of intersection to sample points
+on the surface of the light to determine visibility. However, from the perspective
+of the worker computing shading, it has no idea where the lights in the scene
+are, or if there is any geometry occluding the light.
 
-To solve this problem, we simply trace the light rays in the opposite direction.
-Rather than originating from the intersection point and heading in the
-direction of the light, we originate the rays at the light and cast them in the
-direction of the intersection point. To support area lights through Monte Carlo
-integration, it is simply a matter of creating multiple light rays with origins
-sampled across the surface of the light.
+To solve this problem, FlexRender traces shadow rays (which we call \emph{light rays})
+in the opposite direction. Instead of originating at the intersection point and
+traveling in the direction of the light, they originate at the light and travel
+in the direction of the intersection point. Area lights are supported through
+Monte Carlo integration by creating multiple light rays with origins sampled
+across the surface of the light.
 
-If the light ray arrives back at the original intersection point after being
-traced through the cluster, we know that its path from the light was unoccluded.
-This leverages the same efficient method for distributed ray tracing that we
-already developed for testing intersections.
+If a light ray returns to the original intersection point after being
+traced through the cluster, we know its path from the light was unoccluded.
+This leverages the same method for tracing rays through a distributed BVH that
+we use for testing intersections. (See Section \ref{traversal}.)
 
-Specifically, casting light rays towards an intersection point consists of the
-following operations:
+In summary, illuminating an intersection is done as follows:
 
 \begin{enumerate}
-    \item At the worker where an intersection was found, copy the ray data into
-        an illumination ray message with the target set to the point of intersection.
-    \item Send this illumination ray message to all workers known to have emissive meshes.
-    \item When a worker receives an illumination ray message, generate sample points
-        across the surface of all emissive meshes. Set these sample points as
-        the origins for new light rays.
-    \item Set the directions of all the light rays such that they are pointed
-        in the direction of the target (the original point of intersection).
+    \item On the worker where an intersection was found, copy the ray data into
+        an illumination ray message with the target set to the point of
+        intersection.
+    \item Send the illumination ray message to all emissive workers.
+    \item When a worker receives an illumination ray message, generate sample
+        points across the surface of all emissive meshes. Set these sample
+        points as the origins for new light rays.
+    \item Set the directions of all the light rays such that they are oriented
+        in the direction of the target.
     \item Push each light ray into the ray queue and let the cluster process
         them as usual.
 \end{enumerate}

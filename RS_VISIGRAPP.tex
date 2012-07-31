@@ -879,39 +879,34 @@ geometry it controlled.
 For testing, we used 2-16 Dell T3500 workstations with dual-core Intel Xeon
 W3503 CPUs clocked at 2.4 GHz. Each workstation had 4 GB of system RAM, a 4 GB
 swap partition, and was running CentOS 6.  On the software side, FlexRender consists of around 14,000 lines of code. Of
-that, 80\% is C++ (with fairly extensive use of C++11), 17\% is Lua (scene and
+that, 80\% is C++, 17\% is Lua (scene and
 shader support libraries), and 3\% is Bash script used for building library
-dependencies.  We leverage several popular open source libraries, \textbf{LuaJIT}, \textbf{libuv}, \textbf{MsgPack}, \textbf{GLM} and \textbf{OpenEXR}.  We also made use of the \textbf{pfstools} and \textbf{pdiff} software packages
+dependencies.  We leverage several popular open source libraries: \emph{LuaJIT}, \emph{libuv}, \emph{MsgPack}, \emph{GLM} and \emph{OpenEXR}.  We also made use of the \emph{pfstools} and \emph{pdiff} software packages
 for tone mapping our output images and computing perceptual diffs respectively.
 
-\subsection{Toy Store}
+\subsection{Test Scene}
 \label{toystore}
 
 Our test scene, ``Toy Store'', has a geometric complexity of nearly 42 million
-triangles. It consists of 1.09 GB of mesh data and 5 GB of BVH data once the
-acceleration structures are built.
-
-The room geometry is relatively simple, but the toys on the shelves are unique
+triangles. The room geometry is relatively simple, but the toys on the shelves are unique
 (non-instanced) copies of the Stanford bunny, Buddha, and dragon models that
 have been remeshed from their highest quality reconstructions down to 14,249
 faces, 49,968 faces, and 34,972 faces respectively. There are 30 toys per
 shelf and 42 shelves in the scene for a total of nearly 1,300 models. Approximately
 one quarter of the models are rendered with a mirror shader. The others have
-a standard Phong shader.
+a standard Phong shader.  The scene consists of 1.09 GB of mesh data and 5 GB of BVH data once the
+acceleration structures are built.  
 
-The image was rendered at a resolution of 1024x768 with no subpixel antialiasing,
+A test  image was rendered at a resolution of 1024x768 with no subpixel antialiasing,
 10 Monte Carlo samples per light (32 lights in the scene), and a recursion
-depth limit of 3 bounces.
-
-For discussing render time speedups, we will consider the specific case of 8
+depth limit of 3 bounces.  For discussing render time speedups, we will consider the specific case of 8
 workers in the traditional configuration vs. 8 workers in the FlexRender
-configuration. We will cover other cluster sizes in less depth in Section
-\ref{clustersize}.
+configuration. 
 
-\subsubsection{Traditional Method}
-\label{toystoretraditional}
+\paragraph{Traditional Method vs. FlexRender}
 
-The traditional method works by chopping up the image into several vertical
+To compare FlexRender to current techniques, we considered a traditional method of rendering
+such a large scene on 8 workers, which chopped up the image into several vertical
 slices, with a different machine responsible for each slice. The slices are
 then reassembled to form the final output image.
 
@@ -919,64 +914,57 @@ then reassembled to form the final output image.
     \centering
     \includegraphics[width=80mm]{images/toystore-sliced.png}
 
-    \caption{Slices of the Toy Store scene rendered with 8 machines in the traditional configuration.}
+    \caption{Slices of the Toy Store scene rendered with 8 machines in the traditional configuration used as a comparison to renders using FlexRender (composite result image shown in Figure~\ref{fig:sotoystore}).}
     \label{fig:toystoresliced}
 \end{figure}
 
 We report time for each machine to complete each phase of rendering (loading
-the scene, building the BVH, and rendering its slice of the image) in Table
+the scene, building the BVH, and rendering its slice of the image) in the right side of Table
 \ref{tb:traditionaltimes}. In particular, the total length of the render would
 take 10,061 seconds (the slowest time), because the last slice is needed before
-the final image can be reassembled.
+the final image can be reassembled.  We report average times for the traditional workers
+compared to FlexRender for each of the 3 rendering phases in Table
+\ref{tb:flexrendertimes} and show FlexRender's speedup over the average case.  We also report the total render time (all three phases combined), using this
+time the slowest traditional worker. 
 
 \begin{table}
 \begin{center}
-\begin{tabular}{|l||c|c||c|c|c||c|}
+\begin{tabular}{|l||c|c|c||c|}
     \hline
-    & (G) & (BVH) & P1 & P2 & P3 & P4\\
+    & load & BVH & render & \textbf{total}\\
     \hline
     \hline
-  1 & 162 & 742 &        288 & 169 & 533 & 990\\
+  1 & 288 & 169 & 533 & 990\\
     \hline
-    2 & 183 & 837 &     290 & 172 & 1119 & 1581 \\
+    2 & 290 & 172 & 1119 & 1581 \\
     \hline
-    3 & 221 & 1007 &    290 & 167 & 1491 & 1948 \\
+    3 & 290 & 167 & 1491 & 1948 \\
     \hline
-   4 &  202 & 922 &     289 & 261 & 9511 & 10061 \\
+   4 &  289 & 261 & 9511 & 10061 \\
     \hline
-    5 & 133 & 607 &     295 & 174 & 1792 & 2261 \\
+    5 & 295 & 174 & 1792 & 2261 \\
     \hline
-    6 & 106 & 486 &     290 & 192 & 677 & 1159\\
+    6 & 290 & 192 & 677 & 1159\\
     \hline
-    7 & 107 & 488    &287 & 167 & 1109 & 1561 \\
+    7 & 287 & 167 & 1109 & 1561 \\
     \hline
-    8 & 0 & 0  &       294 & 171 & 303 & 768 \\
+    8 & 294 & 171 & 303 & 768 \\
     \hline
 \end{tabular}
-\caption{Distribution of geometry and acceleration structure data based on storage requirements. (G) is Geometry Size (MB) and (B)  is BVH size in MB for FlexRender.  Time (in seconds) for individual workers to complete each phase using the traditional method. P1 is loading, P2 is building a BVH, P3 is rendering and P4 is the total.}
+\caption{Timings for each phase of the algorithm  for each of the 8 workers. Times (in seconds) are given for individual workers to complete each phase using the traditional method:  loading, building a BVH, rendering and the total time of all three phases.}
 \label{tb:traditionaltimes}
 \end{center}
 \end{table}
 
-\subsubsection{FlexRender}
-\label{toystoreflexrender}
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=80mm]{showoff/toystore.png}
+    \caption{Toy Store scene that is comprised of nearly 1,300 models and 42 million triangles.}
+    \label{fig:sotoystore}
+\end{figure}
 
-For comparison purposes, we report average times for the traditional workers
-compared to FlexRender for each of the 3 rendering phases in Table
-\ref{tb:flexrendertimes}. We also show FlexRender's speedup over the average case.
 
-We also report the total render time (all three phases combined), using this
-time the slowest traditional worker. This is a fair comparison because even if
-all of the other traditional workers finish quickly, the render is not complete
-until the last worker finishes.
-
-Lastly, we also report the times and speedup excluding the loading and syncing
-phase. The reasoning behind this is that while FlexRender currently reads in
-scene assets at the renderer and distributes them across the network, there is
-no inherent reason why it needs to load the scene this way. Specifically,
-if each worker had access to a shared network storage volume with the scene
-assets on it, the renderer could simply issue commands to each worker
-instructing it to load a particular asset from the network storage.
+%Lastly, we also report the times and speedup excluding the loading and syncingphase. The reasoning behind this is that while FlexRender currently reads inscene assets at the renderer and distributes them across the network, there isno inherent reason why it needs to load the scene this way. Specifically,if each worker had access to a shared network storage volume with the sceneassets on it, the renderer could simply issue commands to each workerinstructing it to load a particular asset from the network storage.
 
 \begin{table}
 \begin{center}
@@ -995,8 +983,8 @@ instructing it to load a particular asset from the network storage.
     \textbf{Total} & \textbf{10061} & \textbf{1532} & \textbf{6.57x} \\
     & \textbf{ (slowest)} & &\\
     \hline
-    \textbf{Total w/o}  & \textbf{9800 } & \textbf{1206} & \textbf{8.13x} \\
-        \textbf{loading} & \textbf{(slowest)} &  &  \\
+%    \textbf{Total w/o}  & \textbf{9800 } & \textbf{1206} & \textbf{8.13x} \\
+    %    \textbf{loading} & \textbf{(slowest)} &  &  \\
     \hline
 \end{tabular}
 \caption{Time (in seconds) for each phase of rendering with FlexRender and the traditional configuration.}
@@ -1017,19 +1005,19 @@ instructing it to load a particular asset from the network storage.
 To ensure the entire scene stays in core, FlexRender must distribute the
 geometry across the available RAM in the cluster effectively. With the exception
 of one worker, the Morton coding and Z-order curve did a decent job of
-partitioning the scene data evenly. See Table~\ref{tb:geom} for a break down of the 
-distribution of the geometry.
+partitioning the scene data evenly. See Figure~\ref{fig:geomdist} for a break down of the 
+distribution of the geometry.  The one worker which did not contain very much geometry was in the top corner
+of the Toy Store closest to the camera. This octant of the scene only contained
+a fill light facing the rest of the geometry.
 
 \begin{figure}[h!]
     \centering
-    \includegraphics[width=60mm]{figures/facesperworker.png}
-    \caption{Percentage of total geometry that was distributed to each worker.}
+    \includegraphics[width=50mm]{figures/facesperworker.png}
+    \caption{Percentage of total geometry that was distributed to each worker using FlexRender.  Beside the worker with no geometry (top corner with only a fill light) the size of geometry per worker varied from 9\% with 106 MB of geometry data and 488 MB of BVH data to 20\% of the scene data with  221 MB of geometry and 1007 MB of BVH data.}
     \label{fig:geomdist}
 \end{figure}
 
-The one worker which did not contain very much geometry was in the top corner
-of the Toy Store closest to the camera. This octant of the scene only contained
-a fill light facing the rest of the geometry.
+
 
 %\begin{table}
 %\begin{center}
@@ -1062,7 +1050,7 @@ workers the average ray would be handled by 3 workers during its lifetime.
 
     \hline
     \% of Rays & 15.8\% & 25.6\% & 21.8\% & 18.8\%\\
-
+\hline
         \hline
            \# Workers & 5 & 6 & 7 & 8+ \\
                \hline
@@ -1074,7 +1062,7 @@ workers the average ray would be handled by 3 workers during its lifetime.
 \end{center}
 \end{table}
 
-Our results show that 63.2\% of rays are handled by 3 workers or less, and
+Our results, see Table~\ref{tb:nethopspercent}, show that 63.2\% of rays are handled by 3 workers or less, and
 nearly 16\% of them never even go out over the network (they are generated on,
 intersect with, and are shaded on a single worker). We also see that 36.8\% of
 rays must touch more than the expected 3 workers.  However, if we include the 
@@ -1209,12 +1197,7 @@ for small to medium cluster sizes we see approximately linear growth.
 Figure \ref{fig:sotoystore} shows the final Toy Store scene render, with 42 million
 triangles and nearly 1,300 models.
 
-\begin{figure}[h!]
-    \centering
-    \includegraphics[width=80mm]{showoff/toystore.png}
-    \caption{Toy Store scene that is comprised of nearly 1,300 models and 42 million triangles.}
-    \label{fig:sotoystore}
-\end{figure}
+
 
 Figure \ref{fig:sofield} shows a render with even higher resolution models,
 bringing the geometric complexity up to 87 million triangles.
@@ -1246,20 +1229,14 @@ from the shaders.
     \label{fig:socornell}
 \end{figure}
 
-Figure \ref{fig:sogi} shows an example of a Monte Carlo global illumination shader,
-as rendered by two workers. At first it appears that the geometry is present on
-all workers. However, the lighting tells the full story. The geometry is split
-the same way as in Figure \ref{fig:sodist}. Each worker image contains direct
-light for the geometry on that worker, as well as indirect light \emph{reflected by}
-geometry on that worker.
+%Figure \ref{fig:sogi} shows an example of a Monte Carlo global illumination shader, as rendered by two workers. At first it appears that the geometry is present on all workers. However, the lighting tells the full story. The geometry is split the same way as in Figure \ref{fig:sodist}. Each worker image contains direct light for the geometry on that worker, as well as indirect light \emph{reflected by} geometry on that worker.
 
-\begin{figure}[h!]
-    \centering
-    \includegraphics[width=80mm]{showoff/gi.png}
-
-    \caption{A Cornell Box with a Monte Carlo global illumination shader. The top row shows individual worker renders, the bottom center is the final composite. Each worker has direct light for the geometry on its machine and indirect light caused by the geometry on its machine.}
-    \label{fig:sogi}
-\end{figure}
+%\begin{figure}[h!]
+  %  \centering
+%    \includegraphics[width=80mm]{showoff/gi.png}
+%    \caption{A Cornell Box with a Monte Carlo global illumination shader. The top row shows individual worker renders, the bottom center is the final composite. Each worker has direct light for the geometry on its machine and indirect light caused by the geometry on its machine.}
+%    \label{fig:sogi}
+%\end{figure}
 
 \subsection{Summary}
 \label{resultssummary}
@@ -1284,32 +1261,22 @@ contributions in the following ways.
         rendering process.
 \end{itemize}
 
-\section{Future Work}
+\subsection{Future Work}
 \label{futurework}
 
 Currently there are two competing concerns in FlexRender. The first is to
 distribute the scene data well, such that the geometry distribution is balanced
-and everything is in-core. The second is to ``keep the chips hot'', or maximize
+and everything is in-core. The second is to maximize
 the utilization of the available processing power in the cluster. Unfortunately,
-these concerns are somewhat at odds at the moment. Good geometry distribution
+these concerns are somewhat at odds: good geometry distribution
 is a result of distributing 3D space well, whereas good workload distribution
-is a result of distributing screen space well. In retrospect, we believe that the Morton coding and Z-order curve was
-a poor choice for the distribution of geometry. It was initially chosen because
-we did not want to require a preprocessing (or \emph{baking}) step for
-determining the optimal distribution of geometry. Since the scene was presumably
-too large to fit in core on any one machine, preprocessing the scene as a whole
-was deemed to be against the spirit of the problem.
-
+is a result of distributing screen space well. 
 The Z-order curve works well for spatially uniform scenes, but unfortunately a
 lot of scenes that are interesting to render are usually uniformly distributed
-in image space, not 3D space. The leads to a lot of degenerate scenes that
-perform suboptimally when rendered with FlexRender. Similarly, the workload of rendering a 
-particular piece of geometry falls on
-the machine who is responsible for that geometry. This means that if a single
-piece of geometry takes up a large portion of screen space, it will end up
-being the bottleneck in rendering. Conversely, workers that hold geometry that
-takes up very little screen space could end up contributing very little
-horsepower to the render.
+in image space, not 3D space. 
+%In retrospect, we believe that the Morton coding and Z-order curve was a poor choice for the distribution of geometry. 
+%It was initially chosen because we did not want to require a preprocessing (or \emph{baking}) step for determining the optimal distribution of geometry. 
+%Since the scene was presumably too large to fit in core on any one machine, preprocessing the scene as a whole was deemed to be against the spirit of the problem.
 
 One solution would be a quick prepassrendering. If we have information about the
 layout of the scene in image space prior to rendering, we have some opportunities
@@ -1321,36 +1288,25 @@ image that each worker was responsible for casting primary rays in, we could
 dramatically increase the chances that the ray would intersect the geometry
 on the worker and finish shading without ever touching the network. 
 
-Additionally, when the ray finishes
+Some network hops could be avoided in the situation when the ray finishes
 traversing the top-level BVH but ends up on a worker that is not the point of
 intersection. Because the worker has no shading assets for that geometry, it
 must pass the ray back to the ``winning'' worker for shading. By distributing
 all of the shading assets (shaders, textures, and materials) to all workers,
 any worker would be capable of shading a ray at the conclusion of its BVH traversal.
 
-\paragraph{Memory Optimizations}
-\label{memory}
-
-Based on the profiling results of our current implementation, the main
-bottleneck is standard library calls and memory allocation. The transient
-nature of many fixed-size fat rays is a perfect opportunity to use an object
+Potential memory optimizations could be based on the transient
+nature of many fixed-size fat rays, which is a perfect opportunity to use an object
 pool to reduce allocation overhead and heap fragmentation.
 In addition, the linear BVH nodes structures were intentionally padded to
 64-bytes to match the cache line size on current CPUs. However without a custom
 STL allocator for the vector that stores this array of nodes, cache alignment
-is not guaranteed. Lastly, there are a few places where the size of fat rays could be reduced.
+is not guaranteed. 
 
-\paragraph{GPGPU and Heterogeneous Architectures}
-\label{hetergenous}
-One of FlexRender's strengths is that it decouples the ray tracing computations
-at the level of the individual ray. Because workers in the cluster speak a
-defined network protocol to pass rays around, this opens the door for workers to
-join the cluster with new and interesting machine architectures.
-Because workers are never waiting on other workers for the results of a
-computation, this opens up the possibility for batching data to a GPU worker.
-exRender's architecture is amiable to amortizing
-the cost of bus transfers in GPGPU computing.
-
+Finally, one of FlexRender's strengths is that it decouples the ray tracing computations
+at the level of the individual ray. Because workers are never waiting on other workers for the results of a computation, this opens up the possibility for batching data to a GPU worker.
+%Because workers in the cluster speak adefined network protocol to pass rays around, this opens the door for workers to join the cluster with new and interesting machine architectures.
+%FlexRender's architecture is amiable to amortizing the cost of bus transfers in GPGPU computing.
 
 %\vfill
 \bibliographystyle{apalike}

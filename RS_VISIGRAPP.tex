@@ -815,61 +815,59 @@ by casting new rays with the appropriate direction.
 \label{completion}
 
 In a traditional recursive ray tracer, determining when the render is complete
-is a simple task. Once the last primary ray pops its final stack frame
+is a simple task: When the last primary ray pops its final stack frame
 the render is over. In FlexRender, however, no one worker (or the renderer, for
 that matter) knows where the ``last ray'' is. To determine when a render is
-complete,  the workers report general statistics
-about their activities to the renderer at regular intervals (in our current
-implementation, 10 times per second). In particular, the following four
-statistics are useful for determining if the render has finished:
+complete,  the workers report statistics about their activities to the renderer
+at regular intervals (in our current implementation, 10 times per second). We
+found the following four statistics to be useful for determining render
+completion:
 
 \begin{description}
    \item[Primary Ray Casting Progress] The amount of the worker's primary rays
       that have been cast into the scene.
    \item[Rays Produced] The number of rays created at the worker during this
       measurement interval. This includes new intersection rays cast from the
-      camera or a shader, illumination ray messages created by terminating intersection
-      rays, or light rays created by processing illumination ray messages.
+      camera or a shader, illumination ray messages created by terminating
+      intersection rays, or light rays created by processing illumination ray
+      messages.
    \item[Rays Killed] The number of rays finalized at the worker during this
       measurement interval. This includes intersection rays that terminated or
-      did not hit anything, illumination ray messages that were destroyed after spawning
-      light rays, or light rays whose final shading value was computed.
+      did not hit anything, illumination ray messages that were destroyed after
+      spawning light rays, or light rays who hit occluders or computed a shading
+      value.
    \item[Rays Queued] The number of rays currently in this worker's ray queue.
 \end{description}
 
-In particular, if any worker has not finished casting its primary rays, we
-know for certain the render is not complete. Secondly, if we observe that no
-rays are produced, killed, or queued at any workers for some number of
-consecutive measurement intervals, it is reasonable to assume that the render
-has concluded. Our current implementation (which reports statistics 10 times per second)
-waits until it sees 10 consecutive intervals of ``uninteresting'' activity on
-the workers before declaring the render complete. We find this achieves a nice
-balance between wanting to end the render as soon as it is legitimately
-finished and risking concluding it too early.
+If any worker has not finished casting its primary rays, we know for certain the
+render is not complete. Secondly, if no rays are produced, killed, or queued at
+any workers for some number of consecutive measurement intervals, it is
+reasonable to assume that the render has concluded. Our current implementation
+(reporting at 10 Hz) waits for 10 consecutive intervals of ``uninteresting''
+activity on all workers before declaring the render complete. In practice, this
+achieves a reasonable balance between ending the render as quickly as possible
+and risking concluding it before all rays have been processed.
 
 \subsubsection{Image Synthesis}
 \label{synthesis}
 
 Once the render has been deemed ``complete'', the renderer requests the image
 buffers from each worker. Because all rendering was computed by respecting
-linearity, computing a pixel in the final output image is just a matter
-of summing corresponding pixels in the worker buffers.
+linearity, computing a pixel in the final output image simply requires summing
+corresponding pixels in the worker buffers.
 
-This can yield some interesting intermediate images. Each worker's buffer
-represents the light in the final image that interacts in some way with the
-geometry present on that worker. For direct light, this shows up as shaded samples where geometry was present
-and black areas where it was not. For other effects such as reflections and
-global illumination, it appears that the worker had access to the whole scene's
-geometry all along, but this is just an optical illusion. Since the rays
-carry with them the source pixel they contribute to (and this value is inherited
-as new rays are spawned from the primary ray), a worker can end up contributing
-to any pixel in the image as long as the light interacted in some way with the
-geometry it controlled.
+This process can yield some interesting intermediate images, as seen in Figure
+\ref{fig:linearity}. Each worker's buffer represents the light in the final
+image that interacts in some way with geometry present on that worker. For
+direct light, this shows up as shaded samples where geometry was present and
+dark areas where it was not. For other effects such as reflections and global
+illumination, we see the reflected light that interacted with the geometry
+present on the worker.
 
 \begin{figure}[h!]
     \centering
     \includegraphics[width=80mm]{images/linearity.png}
-    \caption{The left and right images show the geometry split between two workers. The composite image is in the center. Note how the Buddha reflects the left side geometry in the left image and the right side geometry in the right image. The actual Buddha mesh data was distributed to the worker on the left.}
+    \caption{The bottom images show the geometry split between two workers. The composite image is on top. Note how the Buddha reflects the left side geometry in the left image and the right side geometry in the right image. The actual Buddha mesh data was distributed to the worker on the left.}
     \label{fig:linearity}
 \end{figure}
 

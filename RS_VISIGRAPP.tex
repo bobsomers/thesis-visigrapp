@@ -571,16 +571,13 @@ In summary, illuminating an intersection is done as follows:
 \subsubsection {Ray Queues}
 \label{queues}
 
-Each worker has a ray queue, with the typical push and pop operations for adding
-and removing rays from the queue. This queue internally is implemented as three
-separate queues, where rays are separated by type. It also contains information
-about the scene camera, for generating new primary rays.
+Each worker has a ray queue, with typical push and pop operations. Internally,
+this is implemented as three separate queues, where rays are separated by type.
+It also contains information about the scene camera, for generating new primary
+rays. When a new ray arrives at a worker, it is immediately pushed into the queue
+according to its type (intersection, illumination, or light).
 
-When a new ray arrives at a worker over the network, it is immediately pushed
-into the queue. Internally, it is pushed into the queue matching its type
-(intersection, illumination, or light).
-
-When the worker pops a ray from the queue, we pull rays from the internal
+When the worker pops a ray from the queue, rays are pulled from the internal
 queues in the following order:
 
 \begin{enumerate}
@@ -590,52 +587,48 @@ queues in the following order:
       since these will generate a limited number of new rays.
    \item If the illumination queue is empty, we pop from the
       \textbf{intersection queue}, since these can generate the most new rays.
-   \item If all of the internal queues are empty, we use the camera to cast
-      new primary rays into the scene (described in \ref{primaryrays}). This
-      effectively generates new work.
+   \item If all of the internal queues are empty, we use the camera to cast a
+      new primary ray into the scene (described in Section \ref{primaryrays}).
 \end{enumerate}
 
-Organizing the processing order of rays as a priority queue based on ray type
-is an essential step in minimizing the exponential explosion of work than can
-occur if too many primary rays enter the system at a time. This helps reduce
-memory usage required for queuing messages because new work is not generated
-until the system is ready to handle it.
+Processing rays as a priority queue is essential for managing the exponential
+explosion of work than can occur if too many primary rays enter the system at
+once. It also helps reduce memory required for queuing because new work is not
+generated until the worker has nothing else to work on.
 
 \subsubsection{Primary Ray Casting}
 \label{primaryrays}
 
-The workers in the cluster are each responsible for casting a portion of the
-primary rays in the scene. The reasoning behind this is to give the cluster
-the ability to regulate itself.
+Each worker in the cluster is responsible for casting a portion of the primary
+rays in the scene. The reasoning behind this is to give the cluster the ability
+to regulate itself.
 
 Consider the case where a worker has not received any work recently from other
 workers in the cluster. For whatever reason (intersection tests, shading, etc.)
 the other workers are too busy dealing with their own queues to send any work
-in the direction of our lonely, rayless worker. By giving the worker control
-over primary ray casting for a portion of the scene, we give workers the ability
-to generate work when they have nothing to do.
+in the direction of this worker. By giving the worker control over primary ray
+casting for a portion of the scene, we enable workers to generate work when
+they have nothing to do.
 
 However, consider the case where a worker contains mostly background
 geometry. It will be receiving work from others infrequently because its size
 in screen space is small, but yet it is in charge of casting primary rays for
 a much larger slice of the image. In this case the worker may go on an
-unfettered spree of primary ray casting, causing lots of grief for his fellow
-workers since he is essentially generating work for others and little for
-himself.
+unfettered spree of primary ray casting, generating lots of work for others and
+little for itself.
 
-To prevent this ``runaway'' case from overburdening the ray queues, we require
-that workers report statistics about their progress to the renderer every so
-often (10 times per second in the current implementation). If the renderer
-notices that a worker is getting significantly further ahead of the others in
-primary ray casting, we temporarily disable primary ray casting on that worker
-until the others catch up.
+To prevent this ``runaway'' case from overburdening the ray queues, workers
+report statistics about their progress to the renderer occasionally (10 times
+per second in our implementation). If the renderer notices that a worker is
+getting significantly further ahead of the others in primary ray casting, we
+temporarily disable primary ray casting on that worker until the others catch
+up.
 
-Because the other workers will not generate primary rays as long as they still
-have other rays in their queues to process, the priority queuing, shared
-ray casting responsibilities, and temporary pausing of primary ray generation at
-runaway workers provides a simple means of self-regulating the cluster that
-works remarkably well and minimizing the memory overhead for message queuing.
-We will examine the overhead in detail in section \ref{results}.
+The priority queuing, shared ray casting responsibilities, and temporary pausing
+of primary ray generation at runaway workers provides a simple means of
+self-regulating the cluster that works remarkably well at minimizing the memory
+overhead for message queuing. We will examine the overhead in detail in Section
+\ref{results}.
 
 \subsubsection{Distributed BVH Traversal}
 \label{traversal}
@@ -775,41 +768,30 @@ of rays in the scene.
 \subsubsection{Shading}
 \label{shading}
 
-When a light ray arrives at a worker, we simply check that its point of
-intersection is within some epsilon of the target. If it is, we consider the
-light sample visible, look up the material, shader, and textures for the mesh,
-and run the shader. The shader is responsible for writing its computed values
-into the worker's image buffer.
+When a light ray arrives at a worker, we check that its point of intersection
+is within some epsilon of the target. If it is, we consider the light sample
+visible, look up the material, shader, and textures for the mesh, and run the
+shader. The shader is responsible for writing its computed values into the
+worker's image buffer.
 
-The implementation of shaders in FlexRender is through extensions to the Lua
-\cite{lua} programming language, using the LuaJIT \cite{luajit} implementation
-for speed. A shader may do any (or none) of the following:
+A shader may do any (or none) of the following:
 
-\begin{enumerate}
-    \item Sample textures based on the name bindings assigned in the material
-        definition.
-    \item Compute a light value based on some implementation of a mathematical
-        shading model (such as the Phong model) and local information at the
-        point being shaded (such as the interpolated surface normal and texture
-        coordinates).
-    \item Accumulate computed light values into the primary RGB buffers, or
-        any auxiliary named buffer.
+\begin{itemize}
+    \item Sample textures.
+    \item Compute light based on a shading model.
+    \item Accumulate computed light into image buffers.
     \item Cast additional rays into the scene.
-\end{enumerate}
+\end{itemize}
 
 When new rays are cast into the scene from a shader, the results of that trace
 are not immediately available. Instead, the trace pushes the new rays into the
 queue for processing and the traversal and shading systems ensure that the
 result of secondary and $n$-ary traced rays will be included in the final image.
 
-In order for linearity and energy conservation to be respected, certain values
-are inherited from the parent ray. In particular, the source pixel is inherited
-(so the ray contributes to the correct pixel in the final image) and the
-desired transmittance along the new ray is multiplied with the transmittance of
-the parent ray (to ensure energy conservation is preserved).  Casting rays from the shader can be used to implement several common visual
-effects:Alpha masking, Reflection, Refraction, Monte Carlo global illumination can all be acheived 
-by casting new rays with the appropriate direction.
-
+The source pixel of the new ray is inherited from its parent to ensure that it
+contributes to the correct pixel in the final image. In addition, the desired
+transmittance along the new ray is multiplied with the transmittance of the
+parent ray to ensure energy conservation is preserved.
 
 \subsection{Render Completion}
 \label{completion}

@@ -308,7 +308,7 @@ geometry in-core. However, there are three main differences in our approach.
 Using GPGPU techniques, \cite{garanzha:2011:ray}, presented a
 method for ray tracing large scenes that are out-of-core on the GPU. Parts of
 their architecture are similar to FlexRender on a single-device scale,
-specifically their use of heirarchical BVHs and ray queues to handle rays cast
+specifically their use of hierarchical BVHs and ray queues to handle rays cast
 from shaders. However, the global ray queue is fairly memory intensive,
 potentially storing up to 32 million rays.
 
@@ -668,7 +668,7 @@ When a ray is received over the network and unpacked at worker, the traversal
 state is examined. If the traversal state points to the root of the top-level
 tree, the scene traversal has completed and the worker can shade the
 intersection if it was the worker on which that intersection occurred.
-Otherwise, the ray must be forwared to the worker who won, since that worker has
+Otherwise, the ray must be forwarded to the worker who won, since that worker has
 the shading assets.
 
 If the traversal state is not at the root, we test the ray against our local
@@ -983,7 +983,7 @@ or below $O((log\;n) + 1)$ and 90.9\% of rays are at or below $O((log\;n) + 2)$.
 \label{queuesizes}
 
 Keeping the ray queue size small is critical to the long term health of the
-render. If rays begin queueing up faster than the cluster can process them,
+render. If rays begin queuing up faster than the cluster can process them,
 eventually the cluster will begin swapping when accessing rays, which violates
 our fundamental performance goal of staying in-core.
 

@@ -22,12 +22,13 @@
 
 \title{FlexRender: A distributed rendering architecture for ray tracing huge scenes on commodity hardware.}
 
-\author{\authorname{Bob Somers\sup{1} and Zo\"{e} J. Wood\sup{1} }
-\affiliation{\sup{1}California Polytechnic  University, San Luis Obispo, CA, USA}
+
+\author{\authorname{Bob Somers and Zo\"{e} J. Wood }
+\affiliation{California Polytechnic University, San Luis Obispo, CA, USA}
 \email{bob@bobsomers.com, zwood@calpoly.edu}
 }
 
-\keywords{Rendering, cluster computing, distributed rendering}
+\keywords{Rendering, distributed rendering, cluster computing}
 
 \abstract{As the quest for more realistic computer graphics marches steadily on,
 the demand for rich and detailed imagery is greater than ever. However, the
@@ -55,7 +56,7 @@ while keeping memory overhead for message queuing around 1\%.
     \centering
     \includegraphics[width=70mm]{showoff/field.png}
 
-    \caption{Field of high resolution meshes. The geometric complexity is nearly 87 million triangles.}
+    \caption{Field of high resolution meshes. The geometric complexity is nearly 87 million triangles, with this scene rendered on 4 machines using FlexRender in 38 minutes.}
     \label{fig:sofield}
 \end{figure}
 
@@ -64,9 +65,8 @@ Rendering has advanced at an incredible pace in recent years. At the heart of
 rendering is describing the world we wish to draw, which has traditionally been
 done by defining surfaces. While exciting developments in volume rendering
 techniques happen on a regular basis, it is unlikely we will abandon surface
-rendering any time soon. Unfortunately for volumes, algorithms that operate on
-them are inherently $n^3$.
-
+rendering any time soon. 
+%Unfortunately for volumes, algorithms that operate onthem are inherently $n^3$.
 The champion of surface representations in rendering, has been the polygonal
 mesh. Meshes are efficient to process and easy for artists to work with because
 they represent discrete points in space and the connectivity between those
@@ -93,12 +93,12 @@ can be difficult to fill all the gaps with useful work. Thus, keeping the chips
 ``hot'' by reducing time spent waiting on data is critical to achieving maximum
 performance, and is an extremely challenging problem.
 
-\begin{figure}[h!]
-    \centering
-    \includegraphics[width=70mm]{figures/memorylatency.png}
-    \caption{Typical memory latencies in a modern commodity machine. Gigabit Ethernet latency included for comparison.}
-    \label{fig:memlatency}
-\end{figure}
+%\begin{figure}[h!]
+   % \centering
+    %\includegraphics[width=70mm]{figures/memorylatency.png}
+    %\caption{Typical memory latencies in a modern commodity machine. Gigabit Ethernet latency included for comparison.}
+    %\label{fig:memlatency}
+%\end{figure}
 
 Because of this fact, there is a lot more to parallel rendering than initially
 meets the eye. Graphics may indeed by highly parallel, but its voracious
@@ -142,9 +142,7 @@ The FlexRender architecture builds on four fundamental building blocks:
 Radiometry, ray tracing \cite{appel:1968} and \cite{whitted:1980}, bounding
 volume hierarchies, and Morton coding.
 
-\subsection{Radiometry and Ray Tracing}
-\label{radiometryraytracing}
-
+\paragraph{Radiometry and Ray Tracing:}
 For a complete treatment of radiometry in the context of rendering algorithms
 and ray tracing in general, we refer the reader to
 \emph{Physically Based Rendering} \cite{pbrt}. For the purposes of FlexRender,
@@ -173,9 +171,7 @@ FlexRender exploits these observations in the following ways:
         conservation are both respected.
 \end{description}
 
-\subsection{Bounding Volume Hierarchies}
-\label{bvhs}
-
+\paragraph{Bounding Volume Hierarchies:}
 Bounding volume hierarchies, or BVHs, are an application of binary search to 3D
 space. BVHs are trees where each node is defined by a bounding volume, such as
 a box or a sphere, that describes the extents of some region of space. All of
@@ -183,9 +179,9 @@ the primitives in the scene that are within that region are child nodes in the
 tree.
 
 The traversal algorithm of a BVH is naturally recursive, but recursive
-implementations keep their state on the call stack. In FlexRender, we may need
-to suspend the traversal on one machine and resume it on another, so we need
-all of the traversal state explicitly exposed. Refactoring it as an iterative
+implementations keep their state on the call stack. In FlexRender, BVH traversal may need
+to be suspended on one machine and resumed it on another, so
+all of the traversal state needs to be explicitly exposed. Refactoring it as an iterative
 traversal explicitly exposes the state for capturing, but unfortunately it still
 requires a traversal stack of child nodes that must be visited on the way back
 up the tree. In FlexRender, rays carry all necessary state along with them,
@@ -200,15 +196,13 @@ from the \emph{sibling}, or from the \emph{child}). They show that their
 traversal algorithm produces identical tree walks and never retests nodes that
 have already been tested.
 
-FlexRender leverages this traversal algorithm due it its low state storage
+FlexRender leverages this traversal algorithm due to its low state storage
 requirements. Each ray only needs to know the index of the current node it is
 traversing and the state of the traversal automaton. Our extensions to support
 suspending traversal and resuming it on another machine are described in detail
 in Section \ref{traversal}.
 
-\subsection{Morton Coding and the Z-Order Curve}
-\label{mortoncoding}
-
+\paragraph{Morton Coding and the Z-Order Curve}
 Morton coding is a method for mapping coordinates in multidimensional space to
 a single dimension. In particular, walking the multidimensional space with a
 Morton coding produces a space-filling Z-order curve.
@@ -224,7 +218,7 @@ More concretely, FlexRender needs a way to distribute a large scene to all the
 machines in the cluster in a spatially coherent way. If the geometry on each
 machine consists of a localized patch of the overall geometry, it allows us to
 minimize communication between the machines, and thus, only pay the network cost
-when we absolutely need to.
+when absolutely needed.
 
 Because the Morton coding produces a spatially coherent traversal of 3D space,
 dividing up the 1D Morton code address space among all the machines participating
@@ -243,9 +237,7 @@ most-significant to least-significant bit.
 \section{Related Work}
 \label{relatedwork}
 
-\subsection{Large Geometry}
-\label{largegeometry}
-
+\paragraph{Large Geometry:}
 A variety of computer graphics algorithms are designed to handle large-scale
 geometry. Displacement maps \cite{krishnamurthy:1996} and normal maps using
 texture data \cite{cohen:1998} and \cite{cignoni:1998} are commonly used,
@@ -272,9 +264,7 @@ hierarchical BVHs with a single ``top-level'' tree, which FlexRender also does.
 However, they used it for chunking the scene into manageable units of work that
 could be loaded and unloaded from main memory quickly.
 
-\subsection{Parallel Rendering}
-\label{parallelbg}
-
+\paragraph{Parallel Rendering}
 The most similar research to FlexRender is Kilauea \cite{kato:2002}, a massively
 parallel networked ray tracer developed at Square USA in 2002. Similarly to our
 work, it uses worker machines connected on a network to keep the entire scene
@@ -401,10 +391,10 @@ because they carry additional state information along with their geometric
 definition of an origin and a direction. Their counterparts, \emph{slim rays},
 consist of only the geometric components.
 
-Specifically, a fat ray contains the following data:
+Specifically, a fat ray contains the following data, which is detailed in the subsequent sections:
 
 \begin{itemize}
-    \item The \textbf{type of ray} this is. See Section \ref{process}.
+    \item The \textbf{type of ray} this is. %See Section \ref{process}.
     \item The \textbf{source pixel} that this ray contributes to.
     \item The \textbf{bounce count}, or number of times this ray has reflected
         off a surface (to prevent infinite loops).
@@ -412,10 +402,9 @@ Specifically, a fat ray contains the following data:
     \item The ray's \textbf{transmittance}, (related to the amount of its final
         pixel contribution).
     \item The \textbf{emission} from a light source carried along the ray, if
-        any. See Section \ref{illumination}.
-    \item The \textbf{target intersection point} of the ray, if any. See
-        Section \ref{illumination}.
-    \item The \textbf{traversal state} of the top-level BVH. See Section \ref{traversal}.
+        any. %See Section \ref{illumination}.
+    \item The \textbf{target intersection point} of the ray, if any. %See Section \ref{illumination}.
+    \item The \textbf{traversal state} of the top-level BVH. %See Section \ref{traversal}.
     \item The \textbf{hit record}, which contains the worker, mesh, and $t$
         value of the nearest intersection.
     \item The \textbf{current worker} this ray should be forwarded to over the
@@ -423,7 +412,7 @@ Specifically, a fat ray contains the following data:
     \item The \textbf{number of workers touched} by the ray. (Not
         used for rendering, only analysis.)
     \item A \textbf{next pointer} for locally queuing rays. Obviously invalid
-        over the network. See Section \ref{queues}.
+        over the network. %See Section \ref{queues}.
 \end{itemize}
 
 In total, the size of a fat ray is 128 bytes.
@@ -431,7 +420,7 @@ In total, the size of a fat ray is 128 bytes.
 \subsection{Render Preparation}
 \label{prep}
 
-First, the renderer ensures that all the workers agree on basic rendering
+To begin rendering FlexRender ensures that all the workers agree on basic rendering
 parameters, such as the minimum and maximum extents of the scene, which is used
 for driving Morton coding discretization along each axis. Once this data has
 been synchronized with all workers, each worker establishes client connections
@@ -461,11 +450,9 @@ reducing load time.
 \subsubsection{Parallel Construction of Bounding Volume Hierarchies}
 \label{parallelbvh}
 
-First, workers construct a BVH for each mesh they have for accelerating spatial
-queries against the mesh. While building each BVH, the worker tracks bounding
-extents of each mesh.
-
-Next, workers build a root BVH for the entire region owned by the worker with
+Next, workers construct a BVH for each mesh they have for accelerating spatial
+queries against the meshes. While building each BVH, the worker tracks bounding
+extents of each mesh.  Workers then build a root BVH for the entire region owned by the worker with
 the mesh extents as its leaf nodes. When testing for intersections locally, a
 worker first tests against this root BVH to determine candidate meshes, then
 traverses each mesh's individual BVH to compute absolute intersections. After
@@ -482,22 +469,27 @@ where rays are sent over the network in Section \ref{traversal}.
 \subsection{Ray Processing}
 \label{process}
 
-Workers are essentially just multithreaded ray processors. Once rendering begins,
-they continually pop rays from the ray queue, schedule them onto the thread pool,
-and process them when the thread is run. This processing step consists of
-testing for intersection, potentially forwarding the ray to another worker,
-or computing shading values if the ray terminates.
+Workers are essentially multithreaded ray processors. 
+%Each worker keeps a
+%queue of rays to be processed and once rendering begins, 
+%each worker continually pop rays from the ray queue, schedules them onto the thread pool,
+%and processes them when the thread is run. This processing step 
+Their general work consists of processing rays by
+testing for intersection, potentially forwarding rays to another worker,
+or computing shading values if a ray terminates.
 
-There are three different types of rays:
+%ZJW I like this re-write of the ray descriptions
+To manage these various tasks when all the geometry and lights may not be local
+to the worker, there are three different types of rays:
 
 \begin{itemize}
-    \item \textbf{Intersection rays} identify points in space at which we would
-        like to compute shading.
+    \item \textbf{Intersection rays} are very much like traditional rays, which identify points in space 
+    that require shading.
     \item \textbf{Illumination ray messages} are copies of intersection rays that
-        have terminated. They are sent to workers who have emissive geometry.
-        See Section \ref{illumination}.
+        have terminated. They are sent to workers who have emissive geometry and assist 
+        in the computation of shading.
     \item \textbf{Light rays} are Monte Carlo samples that contribute direct
-        illumination to a point being shaded. See Section \ref{illumination}.
+        illumination to a point being shaded. %See Section \ref{illumination}.
 \end{itemize}
 
 \begin{figure}[h!]
@@ -507,7 +499,7 @@ There are three different types of rays:
     \label{fig:raytypes}
 \end{figure}
 
-An important point is the sequence of their lifetimes. The order is as follows:
+\noindent The typical lifetime of these various rays is as follows:
 
 \begin{enumerate}
     \item An intersection ray is cast into the scene.
@@ -516,41 +508,47 @@ An important point is the sequence of their lifetimes. The order is as follows:
         geometry.
     \item When those illumination ray messages are delivered, they die and spawn
         light rays cast toward the original intersection.
-    \item When those light rays terminate, they die. If they terminate at the
-        original intersection, the worker computes shading for it.
+    \item  If they terminate at the
+        original intersection, the worker computes shading for it. When those light rays terminate, they die.
 \end{enumerate}
 
-It should be apparent that a single intersection ray can spawn many additional
-rays. It should also be apparent that light rays are the most likely to terminate
-without generating additional rays.
+A single intersection ray can spawn many additional
+rays and light rays are the most likely to terminate
+without generating additional rays.  These are key factors for deciding ray processing order for the cluster.
 
 \subsubsection{Illumination}
 \label{illumination}
 
-There is no special ``light'' type, only meshes that are emissive, which is a
+In FlexRenderer there is no special ``light'' type, only meshes that are emissive, which is a
 property set by the assigned material. Emissive meshes are known to inject
 light into the scene through their shader. During scene loading, the renderer
 maintains a list of workers that have been sent at least one emissive mesh and
 sends the list to all workers before rendering begins.
 
-Once intersection testing has identified a point has been for shading, we
+Once intersection testing has identified a point needing shading, FlexRender
 must determine the visibility of light sources from that point. In a traditional
 ray tracer, shadow rays are cast from the point of intersection to sample points
 on the surface of the light to determine visibility. However, from the perspective
 of the worker computing shading, it has no idea where the lights in the scene
-are, or if there is any geometry occluding the light.
+are, or if there is any geometry occluding the light, it just knows which workers have emissive meshes.
 
-To solve this problem, FlexRender traces shadow rays (which we call \emph{light rays})
-in the opposite direction. Instead of originating at the intersection point and
+To solve this problem, illumination ray messages are used to request that
+emissive meshes instead test for visibility from their perspective.
+In this way, FlexRender traces an equivalent of shadow rays but 
+in the opposite direction, which we call \emph{light rays}. Instead of originating at the intersection point and
 traveling in the direction of the light, they originate at the light and travel
 in the direction of the intersection point. Area lights are supported through
 Monte Carlo integration by creating multiple light rays with origins sampled
 across the surface of the light.
 
 If a light ray returns to the original intersection point after being
-traced through the cluster, we know its path from the light was unoccluded.
-This leverages the same method for tracing rays through a distributed BVH that
-we use for testing intersections. (See Section \ref{traversal}.)
+traced through the cluster, which can be determined via the information carried
+forward in the 
+\emph{fat rays}, the renderer knows its path from the light was unoccluded.
+The advantage of this method is that it leverages the same method for tracing rays through a distributed BVH that
+used for testing ray intersections. 
+
+%ZJW it might make sense to move this summary sooner....
 
 In summary, illuminating an intersection is done as follows:
 
@@ -572,7 +570,8 @@ In summary, illuminating an intersection is done as follows:
 \subsubsection {Ray Queues}
 \label{queues}
 
-Each worker has a ray queue, with typical push and pop operations. Internally,
+To manage the various types and numerous rays present in the system, 
+each worker has a ray queue, with typical push and pop operations. Internally,
 this is implemented as three separate queues, where rays are separated by type.
 It also contains information about the scene camera, for generating new primary
 rays. When a new ray arrives at a worker, it is immediately pushed into the queue
@@ -584,12 +583,12 @@ queues in the following order:
 \begin{enumerate}
    \item The \textbf{light queue}, since these are least likely to generate
       new rays.
-   \item If the light queue is empty, we pop from the \textbf{illumination queue},
+   \item If the light queue is empty, the worker pops from the \textbf{illumination queue},
       since these will generate a limited number of new rays.
-   \item If the illumination queue is empty, we pop from the
+   \item If the illumination queue is empty, the worker pops from the
       \textbf{intersection queue}, since these can generate the most new rays.
-   \item If all of the internal queues are empty, we use the camera to cast a
-      new primary ray into the scene (described in Section \ref{primaryrays}).
+   \item If all of the internal queues are empty, the worker uses the camera to cast a
+      new primary ray into the scene %(described in Section \ref{primaryrays}).
 \end{enumerate}
 
 Processing rays as a priority queue is essential for managing the exponential
@@ -600,43 +599,39 @@ generated until the worker has nothing else to work on.
 \subsubsection{Primary Ray Casting}
 \label{primaryrays}
 
-Each worker in the cluster is responsible for casting a portion of the primary
-rays in the scene. The reasoning behind this is to give the cluster the ability
-to regulate itself.
-
-Consider the case where a worker has not received any work recently from other
-workers in the cluster. For whatever reason (intersection tests, shading, etc.)
-the other workers are too busy dealing with their own queues to send any work
-in the direction of this worker. By giving the worker control over primary ray
+To give the cluster the ability
+to regulate itself, each worker in the cluster is responsible for casting a portion of the primary
+rays in the scene. Consider the case where a worker has not received any work recently from other
+workers in the cluster for whatever reason.
+% (intersection tests, shading, etc.) the other workers are too busy dealing with their own queues to send any work
+%in the direction of this worker. 
+By giving the worker control over primary ray
 casting for a portion of the scene, we enable workers to generate work when
 they have nothing to do.
 
-However, consider the case where a worker contains mostly background
-geometry. It will be receiving work from others infrequently because its size
-in screen space is small, but yet it is in charge of casting primary rays for
-a much larger slice of the image. In this case the worker may go on an
+However, in the case where a worker contains mostly background
+geometry, it will infrequently receive work from others because its size
+in screen space is small, yet it is in charge of casting primary rays for
+a larger slice of the image. In this case the worker may go on an
 unfettered spree of primary ray casting, generating lots of work for others and
-little for itself.
-
-To prevent this ``runaway'' case from overburdening the ray queues, workers
+little for itself. To prevent this ``runaway'' case from overburdening the ray queues, workers
 report statistics about their progress to the renderer occasionally (10 times
-per second in our implementation). If the renderer notices that a worker is
-getting significantly further ahead of the others in primary ray casting, we
-temporarily disable primary ray casting on that worker until the others catch
-up.
+per second in our implementation). If a worker is
+getting significantly further ahead of the others in primary ray casting, the renderer
+temporarily disables primary ray casting on that worker.
 
-The priority queuing, shared ray casting responsibilities, and temporary pausing
-of primary ray generation at runaway workers provides a simple means of
+Priority queuing, shared ray casting responsibilities, and temporary pausing
+of primary ray generation on runaway workers provides a simple means of
 self-regulating the cluster that works remarkably well at minimizing the memory
-overhead for message queuing. We will examine the overhead in detail in Section
-\ref{results}.
+overhead for message queuing (examined in detail in Section
+\ref{results}).
 
 \subsubsection{Distributed BVH Traversal}
 \label{traversal}
 
 Distributed traversal of the scene BVH happens at two levels. Recall that the
 top level BVH contains bounding boxes for each worker and is present on all
-workers. Below that, each worker contains a BVH consisting only the mesh data
+workers. Below that, each worker contains a BVH consisting of only the mesh data
 present on that worker.
 
 When a ray is generated, traversal begins at the root of the top level tree
@@ -648,7 +643,7 @@ top-level node and the state of the traversal automaton (\emph{from the parent},
 \emph{from the sibling}, or \emph{from the child}). The logic for top-level
 traversal is shown in Algorithm \ref{algo:toplevel}.
 
-\begin{algorithm}
+\begin{algorithm}[h!]
     \SetAlgoLined
 
     \While{current node $!=$ root}{
@@ -664,18 +659,18 @@ traversal is shown in Algorithm \ref{algo:toplevel}.
     \label{algo:toplevel}
 \end{algorithm}
 
-When a ray is received over the network and unpacked at worker, the traversal
+When a ray is received over the network and unpacked at the next worker, the traversal
 state is examined. If the traversal state points to the root of the top-level
 tree, the scene traversal has completed and the worker can shade the
 intersection if it was the worker on which that intersection occurred.
 Otherwise, the ray must be forwarded to the worker who won, since that worker has
 the shading assets.
 
-If the traversal state is not at the root, we test the ray against our local
+If the traversal state is not at the root, the worker tests the ray against its local
 mesh BVH to find the closest intersection on this worker. If the result of that
-test is closer to the camera than the current closest intersection, we update
-the hit record of the ray and resume traversal of the top-level BVH by
-reinstating the traversal state packed into the ray and continuing where we left
+test is closer to the camera than the current closest intersection, the worker updates
+the hit record of the ray and resumes traversal of the top-level BVH by
+reinstating the traversal state packed into the ray and continuing where it left
 off. This logic is shown in Algorithm \ref{algo:workerlevel}.
 
 \begin{algorithm}
@@ -719,8 +714,8 @@ In addition, there are two interesting corner cases to consider.
 Thus, the worst case scenario actually touches $n + 2$ workers, where $n$ is the
 number of workers in the cluster.
 
-In Section \ref{futurework}, we discuss possible optimizations that may eliminate
-both of these corner cases. Additionally in Section \ref{results}, we show that
+We discuss possible optimizations that may eliminate
+both of these corner cases in the Future Work Section. Additionally in Section \ref{results}, we show that
 in practice, the number of workers that each ray touches is less than or equal
 to the theoretical $O(log\;n)$ performance of the binary tree for the majority
 of rays in the scene.
@@ -728,9 +723,9 @@ of rays in the scene.
 \subsubsection{Shading}
 \label{shading}
 
-When a light ray arrives at a worker, we check that its point of intersection
-is within some epsilon of the target. If it is, we consider the light sample
-visible, look up the material, shader, and textures for the mesh, and run the
+When a light ray arrives at a worker, it checks that its point of intersection
+is within some epsilon of the target. If it is, the worker considers the light sample
+visible, looks up the material, shader, and textures for the mesh, and runs the
 shader. The shader is responsible for writing its computed values into the
 worker's image buffer.
 
@@ -743,11 +738,10 @@ A shader may do any (or none) of the following:
     \item Cast additional rays into the scene.
 \end{itemize}
 
-When new rays are cast into the scene from a shader, the results of that trace
-are not immediately available. Instead, the trace pushes the new rays into the
+When new rays are cast into the scene from a shader, the results of that cast
+are not immediately available. Instead, the cast pushes the new rays into the
 queue for processing and the traversal and shading systems ensure that the
 result of secondary and $n$-ary traced rays will be included in the final image.
-
 The source pixel of the new ray is inherited from its parent to ensure that it
 contributes to the correct pixel in the final image. In addition, the desired
 transmittance along the new ray is multiplied with the transmittance of the
@@ -759,7 +753,7 @@ parent ray to ensure energy conservation is preserved.
 In a traditional recursive ray tracer, determining when the render is complete
 is a simple task: When the last primary ray pops its final stack frame
 the render is over. In FlexRender, however, no one worker (or the renderer, for
-that matter) knows where the ``last ray'' is. To determine when a render is
+that matter) knows where the ``last ray'' is in the cluster. To determine when a render is
 complete,  the workers report statistics about their activities to the renderer
 at regular intervals (in our current implementation, 10 times per second). We
 found the following four statistics to be useful for determining render
@@ -834,7 +828,10 @@ meshes that have been remeshed from their highest quality reconstructions down
 to 14,249 faces, 49,968 faces, and 34,972 faces respectively. There are 30 toys
 per shelf and 42 shelves in the scene for a total of nearly 1,300 meshes.
 Approximately one quarter of the meshes are rendered using a mirrored shader,
-while the others used a standard Phong shader. The scene consists of 1.09 GB of
+while the others used a standard Phong shader. The mirrored shader is what causes
+some black pixels in the image due to the scene not being completely enclosed (i.e. those
+pixels are reflecting the black background).
+The scene consists of 1.09 GB of
 mesh data and 5 GB of BVH data once the acceleration structures are built.
 
 We rendered a test image at a resolution of 1024x768 with no subpixel
@@ -848,7 +845,7 @@ sizes in Section \ref{clustersize}.
 
 To compare FlexRender to current techniques, we considered a traditional method
 of rendering such a large scene on 8 workers by chopping up the image into
-several vertical slices, with a different machine responsible for each slice.
+several vertical slices, with a different machine responsible for each slice (see Figure~\ref{fig:toystoresliced}).
 The slices are then reassembled to form the final output image.
 
 \begin{figure}[h!]
@@ -864,7 +861,8 @@ the scene, building the BVH, and rendering its slice of the image) in Table
 seconds (the slowest time), because the last slice is needed before the final
 image can be assembled. We report average times for the traditional workers
 compared to FlexRender for each of the 3 rendering phases in Table
-\ref{tb:flexrendertimes} and show FlexRender's speedup over the average case.
+\ref{tb:flexrendertimes} and show FlexRender's speedup over the average case of 6.57 times
+faster.
 We also report the total render time (all three phases combined), using the
 slowest traditional worker (time to final image).
 
@@ -892,7 +890,7 @@ slowest traditional worker (time to final image).
     8 & 294 & 171 & 303 & 768 \\
     \hline
 \end{tabular}
-\caption{Time for each phase of the algorithm, for each of the 8 workers, in seconds. These include loading the scene, building the BVH, rendering the slice, and the total time of all three phases.}
+\caption{Time for each phase of the \textbf{traditional} algorithm, for each of the 8 workers, in seconds. These include loading the scene, building the BVH, rendering the slice, and the total time of all three phases.}
 \label{tb:traditionaltimes}
 \end{center}
 \end{table}
@@ -922,7 +920,7 @@ slowest traditional worker (time to final image).
     & \textbf{(slowest)} & & \\
     \hline
 \end{tabular}
-\caption{Time (in seconds) for each phase of rendering with FlexRender and the traditional configuration.}
+\caption{Time (in seconds) for each phase of rendering with FlexRender versus the traditional configuration.}
 \label{tb:flexrendertimes}
 \end{center}
 \end{table}
@@ -949,7 +947,7 @@ octant of the scene only contained a fill light facing the rest of the geometry.
 \label{networkhops}
 
 The intent of the top-level BVH is to reduce network cost by only sending rays
-across the network when we know they venture into that worker's region of space.
+across the network when they venture into that worker's region of space.
 Since a BVH exhibits $O(log\;n)$ traversal, we expect that with 8 workers rays
 would be processed by 3 workers in the average case.
 
@@ -1150,14 +1148,14 @@ contributions in the following ways.
         to effective scene distribution.
     \item Rays carry enough state to never require replies and the generated
         images match our baseline implementation.
-    \item We can correctly and efficiently traverse the scene when workers
+    \item FlxRender can correctly and efficiently traverse the scene when workers
         only contain spatially local BVHs, linked by a top-level BVH.
     \item The top-level BVH effectively reduces the amount of network
         communication necessary to render the scene.
     \item The system keeps itself regulated and reduces memory usage by
         throttling new work generation and processing rays in an intelligent
         order.
-    \item We show consistent speedups over the traditional approach, which
+    \item FlexRender shows consistent speedups over the traditional approach, which
         suffers greatly from swapping to disk frequently during the rendering
         process.
 \end{itemize}
@@ -1176,11 +1174,11 @@ for spatially uniform scenes, but unfortunately a lot of scenes that are
 interesting to render are usually uniformly distributed in image space, not
 3D space. 
 
-One solution would be a quick pre-pass. If we have information about the
-layout of the scene in image space prior to rendering, we have opportunities
+One solution would be a quick pre-pass. Given information about the
+layout of the scene in image space prior to rendering, there are opportunities
 to move things around and adjust the workload before it becomes a problem
 during rendering. A pre-pass likewise could help reduce extra network hops.
-With information about the layout of the scene in image space, we could
+With information about the layout of the scene in image space, FlexRender could
 carefully choose the slices of the image that each worker was responsible for
 casting primary rays in. This could dramatically increase the chances that the
 rays would intersect geometry on the same worker and finish shading without

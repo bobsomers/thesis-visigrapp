@@ -46,7 +46,7 @@ on message-passing that is designed to partition scene geometry across a cluster
 of commodity machines in a spatially coherent way, allowing the entire scene to
 remain in-core and enabling the construction of hierarchical spatial acceleration
 structures in parallel. The results of our implementation show roughly an order
-of magnitude speedup in rendering time compared to the traditional approach,
+of magnitude speedup in rendering time compared to image plane decomposition,
 while keeping memory overhead for message queuing around 1\%.
 }
 
@@ -56,7 +56,7 @@ while keeping memory overhead for message queuing around 1\%.
     \centering
     \includegraphics[width=70mm]{showoff/field.png}
 
-    \caption{Field of high resolution meshes. The geometric complexity is nearly 87 million triangles, with this scene rendered on 4 machines using FlexRender in 38 minutes.}
+    \caption{Field of high resolution meshes whose geometric complexity is nearly 87 million triangles. Rendered across 4 commodity machines using FlexRender}
     \label{fig:sofield}
 \end{figure}
 
@@ -65,16 +65,13 @@ Rendering has advanced at an incredible pace in recent years. At the heart of
 rendering is describing the world we wish to draw, which has traditionally been
 done by defining surfaces. While exciting developments in volume rendering
 techniques happen on a regular basis, it is unlikely we will abandon surface
-rendering any time soon. 
-%Unfortunately for volumes, algorithms that operate onthem are inherently $n^3$.
-The champion of surface representations in rendering, has been the polygonal
-mesh. Meshes are efficient to process and easy for artists to work with because
-they represent discrete points in space and the connectivity between those
-points (rather than abstract equations). However, their core advantage is also
-their core drawback. Because everything is defined explicitly, meshes with fine
-levels of detail have significantly higher storage requirements. Thus, as the
-demand for higher visual fidelity increases, the natural tendency is to increase
-geometric complexity.
+rendering any time soon. The champion of surface representations in rendering,
+has been the polygonal mesh. Even when used to store smooth surfaces in a
+compressed way (as with subdivision surfaces), they are usually tesselated into
+large numbers of fine polygons for rendering. Since their representation is
+defined explicitly, meshes with fine levels of detail have significantly
+higher storage requirements. Thus, as the demand for higher visual fidelity
+increases, the natural tendency is to increase geometric complexity.
 
 Graphics, and ray tracing in particular, has long been said to be a problem that
 is \emph{embarrassingly parallel}, given that many graphics algorithms operate
@@ -89,64 +86,54 @@ In current memory hierarchies, data access time can take anywhere from around
 12 cycles (4 nanoseconds for an L1 cache hit) to over 300 cycles (100
 nanoseconds for main memory). Techniques such as out-of-order execution are
 helpful in filling this wasted time, but for memory intensive applications it
-can be difficult to fill all the gaps with useful work. Thus, keeping the chips
-``hot'' by reducing time spent waiting on data is critical to achieving maximum
-performance, and is an extremely challenging problem.
-
-%\begin{figure}[h!]
-   % \centering
-    %\includegraphics[width=70mm]{figures/memorylatency.png}
-    %\caption{Typical memory latencies in a modern commodity machine. Gigabit Ethernet latency included for comparison.}
-    %\label{fig:memlatency}
-%\end{figure}
+can be difficult to fill all the gaps with useful work.
 
 Because of this fact, there is a lot more to parallel rendering than initially
 meets the eye. Graphics may indeed by highly parallel, but its voracious
 appetite for memory access is actively working \emph{against} its parallel
 efficiency on current architectures.
 
-This paper presents the architecture of FlexRender, a ray tracer designed for
-rendering huge scenes with high geometric complexity on commodity hardware. We
-specifically target commodity hardware because it currently has an excellent
-cost to performance ratio, but still typically lacks enough memory to fit large
-scenes entirely in RAM. Current strategies for parallelizing a renderer across
-a cluster of commodity machines are limited to having each worker compute a
-separate ``slices'' of the image (or frames of an animation), but do nothing to
-manage the cost associated with large scene assets that do not fit into main
-memory.
+This paper presents FlexRender, a ray tracer designed for rendering scenes
+with high geometric complexity on commodity hardware. We specifically target
+commodity hardware because it currently has an excellent cost to performance
+ratio, but still typically lacks enough memory to fit large scenes entirely in
+RAM.
 
-Thus, our work describes the following core contributions:
+Our work describes the following core contributions:
 
 \begin{enumerate}
-    \item A system for ray tracing which uses the pooled memory of a cluster of
-        commodity machines to keep the entire scene in-core.
-    \item A method for passing ray messages between workers in the cluster with
-        enough state to never require a reply message.
+    \item A feed-forward messaging design between workers that passes enough
+        state with every ray to never require reply messages.
+    \item An approach to shading using this messaging design that does not
+        require suspending execution of shaders and maintaining suspended state.
     \item An extension to a stackless BVH traversal algorithm \cite{hapala:2011}
         that makes it possible to suspend traversal at one worker and resume it
         at another.
-    \item A discussion of the concepts involved and an analysis of the resulting
-        implementation.
+    \item A simple throttling method for managing memory overhead for message
+        queueing without resorting to a complicated dynamic scheduling algorithm.
+    \item Technical insight into the challenges of building such a renderer, an
+        analysis of our results, and an open-source implementation.
 \end{enumerate}
 
 In particular, we show that FlexRender can achieve speedups that are around an
-order of magnitude better than the traditional parallelization approach for
-commodity machines, and can naturally self-regulate the cluster of workers to
-keep the memory overhead due to message queuing around 1\% of each worker's
-main memory.
+order of magnitude better than image plane decomposition for commodity machines,
+and can naturally self-regulate the cluster of workers to keep the memory
+overhead due to message queuing around 1\% of each worker's main memory.
+
+It's important to remember that FlexRender is an experimental and incomplete
+design, and some of our design goals worked better than others. In the hopes of
+making future experimentation easier for others, we provide the complete
+source code of FlexRender at http://www.flexrender.org.
 
 \section{Background}
 \label{background}
 
-The FlexRender architecture builds on four fundamental building blocks:
-Radiometry, ray tracing \cite{appel:1968} and \cite{whitted:1980}, bounding
-volume hierarchies, and Morton coding.
+FlexRender leverages observations from several fundamental building blocks,
+including Radiometry, bounding volume hierarchies, and Morton coding.
 
-\paragraph{Radiometry and Ray Tracing:}
-For a complete treatment of radiometry in the context of rendering algorithms
-and ray tracing in general, we refer the reader to
-\emph{Physically Based Rendering} \cite{pbrt}. For the purposes of FlexRender,
-we note the following observations of the radiometry model of light:
+\paragraph{Radiometry:}
+For the purposes of FlexRender, we note the following observations of the
+radiometry model of light:
 
 \begin{description}
     \item[Light behaves linearly.] The combined effect of two rays of light
@@ -172,12 +159,6 @@ FlexRender exploits these observations in the following ways:
 \end{description}
 
 \paragraph{Bounding Volume Hierarchies:}
-Bounding volume hierarchies, or BVHs, are an application of binary search to 3D
-space. BVHs are trees where each node is defined by a bounding volume, such as
-a box or a sphere, that describes the extents of some region of space. All of
-the primitives in the scene that are within that region are child nodes in the
-tree.
-
 The traversal algorithm of a BVH is naturally recursive, but recursive
 implementations keep their state on the call stack. In FlexRender, BVH traversal may need
 to be suspended on one machine and resumed it on another, so
@@ -187,20 +168,17 @@ requires a traversal stack of child nodes that must be visited on the way back
 up the tree. In FlexRender, rays carry all necessary state along with them,
 and this approach would require the entire stack to be included as ray state.
 
-However, a stackless traversal method is described in
-\emph{Efficient Stack-less BVH Traversal for Ray Tracing} \cite{hapala:2011}.
-The key insight is that if parent links are stored in the tree, the same
-traversal can be achieved using a three-state automaton describing the direction
-you came from when you reached the current node (i.e. from the \emph{parent},
-from the \emph{sibling}, or from the \emph{child}). They show that their
-traversal algorithm produces identical tree walks and never retests nodes that
-have already been tested.
+However, \cite{hapala:2011} presents a stackless traversal method. The key
+insight is that if parent links are stored in the tree, the same traversal can
+be achieved using a three-state automaton describing the direction you came
+from when you reached the current node (i.e. from the \emph{parent}, from the
+\emph{sibling}, or from the \emph{child}). They show that their traversal
+algorithm produces identical tree walks and never retests nodes that have
+already been tested.
 
 FlexRender leverages this traversal algorithm due to its low state storage
 requirements. Each ray only needs to know the index of the current node it is
-traversing and the state of the traversal automaton. Our extensions to support
-suspending traversal and resuming it on another machine are described in detail
-in Section \ref{traversal}.
+traversing and the state of the traversal automaton.
 
 \paragraph{Morton Coding and the Z-Order Curve}
 Morton coding is a method for mapping coordinates in multidimensional space to
@@ -214,11 +192,11 @@ Morton coding produces a space-filling Z-order curve.
     \label{fig:zorder}
 \end{figure}
 
-More concretely, FlexRender needs a way to distribute a large scene to all the
-machines in the cluster in a spatially coherent way. If the geometry on each
-machine consists of a localized patch of the overall geometry, it allows us to
-minimize communication between the machines, and thus, only pay the network cost
-when absolutely needed.
+More concretely, FlexRender needs to distribute scene data to machines in the
+cluster, without a preprocessing step, in a spatially coherent way. If the
+geometry on each machine consists of a localized patch of the overall geometry,
+it allows us to minimize communication between the machines, and thus, only pay
+the network cost when absolutely needed.
 
 Because the Morton coding produces a spatially coherent traversal of 3D space,
 dividing up the 1D Morton code address space among all the machines participating
@@ -394,7 +372,7 @@ consist of only the geometric components.
 Specifically, a fat ray contains the following data, which is detailed in the subsequent sections:
 
 \begin{itemize}
-    \item The \textbf{type of ray} this is. %See Section \ref{process}.
+    \item The \textbf{type of ray} this is.
     \item The \textbf{source pixel} that this ray contributes to.
     \item The \textbf{bounce count}, or number of times this ray has reflected
         off a surface (to prevent infinite loops).
@@ -402,17 +380,17 @@ Specifically, a fat ray contains the following data, which is detailed in the su
     \item The ray's \textbf{transmittance}, (related to the amount of its final
         pixel contribution).
     \item The \textbf{emission} from a light source carried along the ray, if
-        any. %See Section \ref{illumination}.
-    \item The \textbf{target intersection point} of the ray, if any. %See Section \ref{illumination}.
-    \item The \textbf{traversal state} of the top-level BVH. %See Section \ref{traversal}.
+        any.
+    \item The \textbf{target intersection point} of the ray, if any.
+    \item The \textbf{traversal state} of the top-level BVH.
     \item The \textbf{hit record}, which contains the worker, mesh, and $t$
         value of the nearest intersection.
     \item The \textbf{current worker} this ray should be forwarded to over the
         network.
     \item The \textbf{number of workers touched} by the ray. (Not
         used for rendering, only analysis.)
-    \item A \textbf{next pointer} for locally queuing rays. Obviously invalid
-        over the network. %See Section \ref{queues}.
+    \item A \textbf{next pointer} for locally queuing rays. (Obviously invalid
+        over the network.)
 \end{itemize}
 
 In total, the size of a fat ray is 128 bytes.
@@ -599,32 +577,29 @@ generated until the worker has nothing else to work on.
 \subsubsection{Primary Ray Casting}
 \label{primaryrays}
 
-To give the cluster the ability
-to regulate itself, each worker in the cluster is responsible for casting a portion of the primary
-rays in the scene. Consider the case where a worker has not received any work recently from other
-workers in the cluster for whatever reason.
-% (intersection tests, shading, etc.) the other workers are too busy dealing with their own queues to send any work
-%in the direction of this worker. 
-By giving the worker control over primary ray
-casting for a portion of the scene, we enable workers to generate work when
+To give the cluster the ability to regulate itself, each worker in the cluster
+is responsible for casting a portion of the primary rays in the scene. Consider
+the case where a worker has not received any work recently from other workers
+in the cluster for whatever reason. By giving the worker control over primary
+ray casting for a portion of the scene, we enable workers to generate work when
 they have nothing to do.
 
-However, in the case where a worker contains mostly background
-geometry, it will infrequently receive work from others because its size
-in screen space is small, yet it is in charge of casting primary rays for
-a larger slice of the image. In this case the worker may go on an
-unfettered spree of primary ray casting, generating lots of work for others and
-little for itself. To prevent this ``runaway'' case from overburdening the ray queues, workers
+However, in the case where a worker contains mostly background geometry, it
+will infrequently receive work from others because its size in screen space
+is small, yet it is in charge of casting primary rays for a larger slice of
+the image. In this case the worker may go on an unfettered spree of primary
+ray casting, generating lots of work for others and little for itself. To
+prevent this ``runaway'' case from overburdening the ray queues, workers
 report statistics about their progress to the renderer occasionally (10 times
-per second in our implementation). If a worker is
-getting significantly further ahead of the others in primary ray casting, the renderer
-temporarily disables primary ray casting on that worker.
+per second in our implementation). If a worker is getting significantly further 
+ahead of the others in primary ray casting, the renderer temporarily disables 
+primary ray casting on that worker.
 
-Priority queuing, shared ray casting responsibilities, and temporary pausing
-of primary ray generation on runaway workers provides a simple means of
-self-regulating the cluster that works remarkably well at minimizing the memory
-overhead for message queuing (examined in detail in Section
-\ref{results}).
+This is not ideal, since lightly loaded workers will wait idle until they
+receive work to do, but it is simple to implement and works remarkably well in
+practice for mitigating the ray explosion and associated memory required for
+message queueing. See \cite{reinhard:1999} and \cite{navratil:2012} for more
+sophisticated approaches that use dynamic scheduling to increase performance.
 
 \subsubsection{Distributed BVH Traversal}
 \label{traversal}
@@ -829,29 +804,28 @@ to 14,249 faces, 49,968 faces, and 34,972 faces respectively. There are 30 toys
 per shelf and 42 shelves in the scene for a total of nearly 1,300 meshes.
 Approximately one quarter of the meshes are rendered using a mirrored shader,
 while the others used a standard Phong shader. The mirrored shader is what causes
-some black pixels in the image due to the scene not being completely enclosed (i.e. those
-pixels are reflecting the black background).
-The scene consists of 1.09 GB of
-mesh data and 5 GB of BVH data once the acceleration structures are built.
+some black pixels in the image due to the scene not being completely enclosed.
+The scene consists of 1.09 GB of mesh data and 5 GB of BVH data once the
+acceleration structures are built.
 
 We rendered a test image at a resolution of 1024x768 with no subpixel
 antialiasing, 10 Monte Carlo samples per light (32 lights in the scene), and a
 recursion depth limit of 3 bounces. For discussing speedups initially, we will
-focus on the 8-worker case (8 workers in the traditional configuration vs. 8
-workers in the FlexRender configuration), but we will discuss varying cluster
-sizes in Section \ref{clustersize}.
+focus on the 8-worker case (8 workers in the image plane decomposition
+configuration vs. 8 workers in the FlexRender configuration), but we will
+discuss varying cluster sizes in Section \ref{clustersize}.
 
-\subsection{Traditional Method vs. FlexRender}
+\subsection{Image Plane Decomposition vs. FlexRender}
 
-To compare FlexRender to current techniques, we considered a traditional method
-of rendering such a large scene on 8 workers by chopping up the image into
-several vertical slices, with a different machine responsible for each slice (see Figure~\ref{fig:toystoresliced}).
-The slices are then reassembled to form the final output image.
+In the image plane decomposition case, we consider 8 workers by chopping up the
+image into several vertical slices, with a different machine responsible for
+each slice (see Figure~\ref{fig:toystoresliced}). The slices are then
+reassembled to form the final output image.
 
 \begin{figure}[h!]
     \centering
     \includegraphics[width=70mm]{images/toystore-sliced.png}
-    \caption{Slices of the Toy Store scene rendered with 8 machines in the traditional configuration used as a comparison to renders using FlexRender (composite result image shown in Figure \ref{fig:sotoystore}).}
+    \caption{Slices of the Toy Store scene rendered with 8 machines using image plane decomposition (composite result image shown in Figure \ref{fig:sotoystore}).}
     \label{fig:toystoresliced}
 \end{figure}
 
@@ -859,12 +833,12 @@ We report the time for each machine to complete each phase of rendering (loading
 the scene, building the BVH, and rendering its slice of the image) in Table
 \ref{tb:traditionaltimes}. The total duration of the render would take 10,061
 seconds (the slowest time), because the last slice is needed before the final
-image can be assembled. We report average times for the traditional workers
-compared to FlexRender for each of the 3 rendering phases in Table
+image can be assembled. We report average times for the image plane decomposition
+workers compared to FlexRender for each of the 3 rendering phases in Table
 \ref{tb:flexrendertimes} and show FlexRender's speedup over the average case of 6.57 times
 faster.
 We also report the total render time (all three phases combined), using the
-slowest traditional worker (time to final image).
+slowest image plane decomposition worker (time to final image).
 
 \begin{table}
 \begin{center}
@@ -890,7 +864,7 @@ slowest traditional worker (time to final image).
     8 & 294 & 171 & 303 & 768 \\
     \hline
 \end{tabular}
-\caption{Time for each phase of the \textbf{traditional} algorithm, for each of the 8 workers, in seconds. These include loading the scene, building the BVH, rendering the slice, and the total time of all three phases.}
+\caption{Time for each phase of the \textbf{IPD} algorithm, for each of the 8 workers, in seconds. These include loading the scene, building the BVH, rendering the slice, and the total time of all three phases. Worker 4 was hit particularly hard with divergent secondary rays, and spent a large amount of time in I/O wait.}
 \label{tb:traditionaltimes}
 \end{center}
 \end{table}
@@ -906,7 +880,7 @@ slowest traditional worker (time to final image).
 \begin{center}
 \begin{tabular}{|l||c|c|c|}
     \hline
-    & Traditional & FlexRender & Speedup \\
+    & IPD & FlexRender & Speedup \\
     \hline
     \hline
     Loading & 290.4 (avg) & 326 & 0.89x \\
@@ -920,7 +894,7 @@ slowest traditional worker (time to final image).
     & \textbf{(slowest)} & & \\
     \hline
 \end{tabular}
-\caption{Time (in seconds) for each phase of rendering with FlexRender versus the traditional configuration.}
+\caption{Time (in seconds) for each phase of rendering with FlexRender versus the IPD configuration.}
 \label{tb:flexrendertimes}
 \end{center}
 \end{table}
@@ -995,8 +969,8 @@ RAM.
 
 Most workers sit comfortably below 1\% of their RAM being used for queued rays,
 while the busiest worker used just over 1\%. This demonstrates that our work
-throttling mechanisms are keeping the cluster from generating more work than it
-can handle.
+throttling mechanisms, while simple, are keeping the cluster from generating
+more work than it can handle.
 
 \begin{figure}[h!]
     \centering
@@ -1056,8 +1030,8 @@ can handle.
 
 To evaluate the scalability of the FlexRender architecture, we ran Toy Store
 renders with cluster sizes of 4 workers, 8 workers, and 16 workers. For
-comparison, we ran the same renders in the traditional configuration also of
-4, 8, and 16 workers.
+comparison, we ran the same renders in the image plane decomposition
+configuration also of 4, 8, and 16 workers.
 
 Table \ref{tb:clustersize} shows a continual and impressive improvement in the
 BVH construction time as the number of workers increases. This is thanks to the
@@ -1077,28 +1051,28 @@ costs), but for small to medium cluster sizes we see approximately linear growth
     \# of Workers & 4 & 8 & 16 \\
     \hline
     \hline
-    Trad. BVH Build & 203 & 184 & 171 \\
+    IPD BVH Build & 203 & 184 & 171 \\
     \hline
     Flex. BVH Build & 39 & 20 & 10 \\
     \hline
     \textbf{Speedup} & \textbf{5.21x} & \textbf{9.20x} & \textbf{17.1x} \\
     \hline
     \hline
-    Trad. Render & 14833 & 10061 & 7702 \\
+    IPD Render & 14833 & 10061 & 7702 \\
     \hline
     Flex. Render & 1742 & 1532  & 970 \\
     \hline
     \textbf{Speedup} & \textbf{8.51x} & \textbf{6.57x} & \textbf{7.94x} \\
     \hline
     \hline
-    Trad. Total & 14536 & 9800 & 7413 \\
+    IPD Total & 14536 & 9800 & 7413 \\
     \hline
     Flex. Total & 1405 & 1206 & 540 \\
     \hline
     \textbf{Speedup} & \textbf{10.35x} & \textbf{8.13x} & \textbf{13.73x} \\
     \hline
 \end{tabular}
-\caption{Comparison of cluster sizes with both the traditional configuration (Trad) and the FlexRender configuration (Flex). Times are in seconds.}
+\caption{Comparison of cluster sizes with both image plane decomposition (IPD) and the FlexRender configuration (Flex). Times are in seconds.}
 \label{tb:clustersize}
 \end{center}
 \end{table}
@@ -1144,20 +1118,19 @@ With these results, we have demonstrated that FlexRender meets our claimed
 contributions in the following ways.
 
 \begin{itemize}
-    \item The scene geometry and acceleration structure data stays in-core due
-        to effective scene distribution.
-    \item Rays carry enough state to never require replies and the generated
-        images match our baseline implementation.
+    \item Rays carry enough state to never require replies thanks to the
+        feed-forward messaging design.
+    \item This design allows the implementation of a shader system that requires
+        no suspension of shader execution state as rays are moved between
+        workers.
     \item FlxRender can correctly and efficiently traverse the scene when workers
         only contain spatially local BVHs, linked by a top-level BVH.
-    \item The top-level BVH effectively reduces the amount of network
-        communication necessary to render the scene.
     \item The system keeps itself regulated and reduces memory usage by
         throttling new work generation and processing rays in an intelligent
         order.
-    \item FlexRender shows consistent speedups over the traditional approach, which
-        suffers greatly from swapping to disk frequently during the rendering
-        process.
+    \item FlexRender shows consistent speedups over image plane decomposition,
+        which suffers greatly from swapping to disk frequently during the
+        rendering process.
 \end{itemize}
 
 \subsection{Future Work}

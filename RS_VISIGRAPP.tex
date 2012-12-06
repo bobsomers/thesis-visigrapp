@@ -228,7 +228,7 @@ More recently, \cite{djeu:2006} provides a framework for efficiently tracing
 multiresolution geometry, but it has large memory requirements and is not
 applied to clusters of commodity machines. Similarly \cite{afra:2012} presents
 a voxel-based paging system designed for interactive use, but it requires an
-expensive pre-processing step and displays visual artifacts at low LOD levels.
+expensive preprocessing step and displays visual artifacts at low LOD levels.
 
 In \cite{demarle:2004}, distributed shared memory is used to page in necessary
 data for rendering, but it relies on a complicated task scheduler to avoid
@@ -1110,7 +1110,7 @@ contributions in the following ways.
     \item This design allows the implementation of a shader system that requires
         no suspension of shader execution state as rays are moved between
         workers.
-    \item FlxRender can correctly and efficiently traverse the scene when workers
+    \item FlexRender can correctly and efficiently traverse the scene when workers
         only contain spatially local BVHs, linked by a top-level BVH.
     \item The system keeps itself regulated and reduces memory usage by
         throttling new work generation and processing rays in an intelligent

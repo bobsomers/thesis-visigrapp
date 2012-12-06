@@ -36,18 +36,16 @@ current ``sweet spot'' in terms of price, power consumption, and performance
 is in commodity hardware. If we desire to render scenes with tens or hundreds
 of millions of polygons as cheaply as possible, we need a way of doing so that
 maximizes the use of the commodity hardware that we already have at our disposal.
-Techniques such as normal mapping and level of detail have attempted to address
-the problem by reducing the amount of geometry in a scene. This is problematic
-for applications that desire or demand access to the scene's full geometric
-complexity at render time. More recently, out-of-core techniques have provided
-methods for rendering large scenes when the working set is larger than the
-available system memory. We propose a distributed rendering architecture based
-on message-passing that is designed to partition scene geometry across a cluster
-of commodity machines in a spatially coherent way, allowing the entire scene to
-remain in-core and enabling the construction of hierarchical spatial acceleration
-structures in parallel. The results of our implementation show roughly an order
-of magnitude speedup in rendering time compared to image plane decomposition,
-while keeping memory overhead for message queuing around 1\%.
+We propose a distributed rendering architecture based on message-passing that is
+designed to partition scene geometry across a cluster of commodity machines,
+allowing the entire scene to remain in-core and enabling parallel construction
+of hierarchical spatial acceleration structures. The design uses feed-forward,
+asynchronous messages to allow distributed traversal of acceleration structures
+and evaluation of shaders without maintaining any suspended shader execution
+state. We also provide a simple method for throttling work generation to keep
+message queueing overhead small. The results of our implementation show roughly
+an order of magnitude speedup in rendering time compared to image plane
+decomposition, while keeping memory overhead for message queuing around 1\%.
 }
 
 \onecolumn \maketitle \normalsize \vfill
@@ -215,70 +213,59 @@ most-significant to least-significant bit.
 \section{Related Work}
 \label{relatedwork}
 
-\paragraph{Large Geometry:}
-A variety of computer graphics algorithms are designed to handle large-scale
-geometry. Displacement maps \cite{krishnamurthy:1996} and normal maps using
-texture data \cite{cohen:1998} and \cite{cignoni:1998} are commonly used,
-especially in real-time applications. However, normal mapping displays visual
-artifacts, particularly around the edges of the mesh (where it is clearly
+A number of algorithms are designed to completely avoid large amounts of
+geometry altogether. Displacement maps \cite{krishnamurthy:1996} and normal
+maps using texture data \cite{cohen:1998} and \cite{cignoni:1998} are commonly
+used, especially in real-time applications. However, normal mapping displays
+visual artifacts, particularly around the edges of the mesh (where it is clearly
 apparent the surface is not high detail) or in areas where the texture is
 scrunched or stretched. Similarly, level of detail is commonly used to replace
 high resolution meshes with lower resolution versions when they are far enough
 away from the viewer \cite{clark:1976}. However, it requires the creation of
 multiple resolution meshes and algorithms to smoothly handle resolution changes.
 
-Recent research has acknowledged that rendering data simply will not fit into
-main memory any more, and has focused on techniques for efficiently using main
-memory as a cache. In 2011, \cite{tabellion:2011} presented a technique for
-dealing with huge point clouds used in point-based global illumination. They
-showed that their method can process 88 GB of point cloud data with a cache of
-just 2 GB, and can render 6.8 GB of point cloud data with cache hit rates of
-over 99\%. One year earlier, \cite{pantaleoni:2010} showed that the software
-they developed for Avatar was also very efficient at dealing with out-of-core
-data. They generated directional occlusion data using ray tracing, which was then
-compressed into spherical harmonics. The spherical harmonics were used at render
-time (they did not directly ray trace the scenes during rendering). They used
-hierarchical BVHs with a single ``top-level'' tree, which FlexRender also does.
-However, they used it for chunking the scene into manageable units of work that
-could be loaded and unloaded from main memory quickly.
+More recently, \cite{djeu:2006} provides a framework for efficiently tracing
+multiresolution geometry, but it has large memory requirements and is not
+applied to clusters of commodity machines. Similarly \cite{afra:2012} presents
+a voxel-based paging system designed for interactive use, but it requires an
+expensive pre-processing step and displays visual artifacts at low LOD levels.
 
-\paragraph{Parallel Rendering}
-The most similar research to FlexRender is Kilauea \cite{kato:2002}, a massively
-parallel networked ray tracer developed at Square USA in 2002. Similarly to our
-work, it uses worker machines connected on a network to keep the entire scene
-geometry in-core. However, there are three main differences in our approach.
+In \cite{demarle:2004}, distributed shared memory is used to page in necessary
+data for rendering, but it relies on a complicated task scheduler to avoid
+flooding the network with large data blocks and it suffers from cache storms in
+a multithreaded environment. Efficient memory use is also the focus of
+\cite{moon:2010}, which obtains an order of magnitude speedup from reordering
+ray evaluation in a cache-oblivious way. This approach would complement our
+method very well.
 
-\begin{enumerate}
-    \item \textbf{Geometry Distribution.}
-        Kilauea randomly distributes geometry to its workers, then casts
-        intersection rays through all workers simultaneously. The closest
-        intersection is resolved from each worker's best candidate with a
-        depth test. FlexRender distributes geometry such that workers ``own''
-        a spatially local region, and passes rays between workers as they move
-        through those regions.
+The focus of \cite{reinhard:1999}, was developing a hybrid work scheduler which
+would improve performance with more effective hardware utilization, but it had
+problems with high memory overhead. Earlier this year, \cite{navratil:2012}
+presented an improved approach which uses a dynamic scheduler to move work from
+an image plane decomposition to a domain decomposition as rays begin to diverge.
 
-    \item \textbf{Shading.}
-        Kilauea suspends the execution of shaders for bounced rays, and resumes
-        them when the rays come back through the system. It stores rays in a
-        priority queue, sorted by termination likelihood. FlexRender maintains
-        a similar priority queue, but carries source pixel and transmittance
-        information along with each ray, making the suspension of shaders (and
-        the associated overhead) unnecessary.
+A similar approach to ours was presented in \cite{badouel:1994}, but it failed
+to address the issue of shader execution within their asynchronous cluster design.
+Another similar approach is the Kilauea renderer in \cite{kato:2002}, but its
+pipeline is very latency sensitive and network communication is heavy due to
+rays being duplicated across many workers.
 
-    \item \textbf{Latency Sensitivity.}
-        Kilauea needs intersection results from every worker before proceeding
-        with depth testing and shading, making the pipeline latency-sensitive.
-        FlexRender computations are never waiting on results from another worker,
-        so rendering clusters of hetergeneous machines (for example, CPU/GPU
-        hybrid clusters) are not performance bottlenecks.
-\end{enumerate}
+Recent research in strict out-of-core methods has focused on techniques for
+using main memory as an efficient cache. In \cite{tabellion:2011}, they present
+a technique for dealing with huge point clouds used in point-based global
+illumination and demonstrate impressive cache hit rates of 95\% and higher.
+Prior to that, \cite{pantaleoni:2010} generated directional occlusion data
+using ray tracing, which was compressed into spherical harmonics for evaluation
+at render time. Ray tracing was not used for primary visibility. Like FlexRender,
+they also used hierarchical BVHs, but for the purpose of chunking scene data
+into units of work that could be loaded into main memory quickly.
 
-Using GPGPU techniques, \cite{garanzha:2011:ray}, presented a
-method for ray tracing large scenes that are out-of-core on the GPU. Parts of
-their architecture are similar to FlexRender on a single-device scale,
-specifically their use of hierarchical BVHs and ray queues to handle rays cast
-from shaders. However, the global ray queue is fairly memory intensive,
-potentially storing up to 32 million rays.
+Using GPGPU techniques, \cite{garanzha:2011}, presented a method for ray
+tracing large scenes that are out-of-core on the GPU. Parts of their
+architecture are similar to FlexRender on a single-device scale, specifically
+their use of hierarchical BVHs and ray queues to handle rays cast from shaders.
+However, the global ray queue is fairly memory intensive, potentially storing
+up to 32 million rays.
 
 Leveraging MapReduce \cite{dean:2004}, \cite{northam:2011} presented an
 implementation of a ray tracer, but noted that sending large amounts of scene
@@ -689,8 +676,8 @@ In addition, there are two interesting corner cases to consider.
 Thus, the worst case scenario actually touches $n + 2$ workers, where $n$ is the
 number of workers in the cluster.
 
-We discuss possible optimizations that may eliminate
-both of these corner cases in the Future Work Section. Additionally in Section \ref{results}, we show that
+We discuss possible optimizations that may eliminate both of these corner cases
+in the Future Work Section. Additionally in Section \ref{results}, we show that
 in practice, the number of workers that each ray touches is less than or equal
 to the theoretical $O(log\;n)$ performance of the binary tree for the majority
 of rays in the scene.
@@ -1136,46 +1123,40 @@ contributions in the following ways.
 \subsection{Future Work}
 \label{futurework}
 
-Currently there are two competing concerns in FlexRender, latency and
-parallelism. Latency is improved by distributing the geometry well, such that
-the cluster is balanced and everything stays in-core. Parallelism is improved
-by maximizing utilization of the available processing power in the cluster.
-Unfortunately, these concerns are somewhat at odds. Good geometry distribution
-is a result of distributing 3D space well, whereas good workload distribution
-is a result of distributing image space well. The Z-order curve works well
-for spatially uniform scenes, but unfortunately a lot of scenes that are
-interesting to render are usually uniformly distributed in image space, not
-3D space. 
+FlexRender could benefit from much of the specialized work detailed in the
+existing literature. Adding dynamic task scheduling as described in
+\cite{navratil:2012} could dramatically improve performance, and adopting a
+more sophisticated spatial distribution method as described in
+\cite{badouel:1994} could also help with workload distribution.
 
-One solution would be a quick pre-pass. Given information about the
-layout of the scene in image space prior to rendering, there are opportunities
-to move things around and adjust the workload before it becomes a problem
-during rendering. A pre-pass likewise could help reduce extra network hops.
-With information about the layout of the scene in image space, FlexRender could
-carefully choose the slices of the image that each worker was responsible for
-casting primary rays in. This could dramatically increase the chances that the
-rays would intersect geometry on the same worker and finish shading without
-ever touching the network.
+The cache-oblivious ray reordering technique presented in \cite{moon:2010}
+would complement our work quite nicely, and could offer another order of
+magnitude improvement in performance. Explorations with multiresolution geometry
+or coupling FlexRender with existing out-of-core methods would also dramatically
+increase the complexity of scenes FlexRender can handle efficiently.
 
-Some network hops could be avoided when the ray finishes traversing the
-top-level BVH but ends up on a worker that is not the point of intersection.
-Because the worker has no shading assets for the terminating geometry, it must
-pass the ray back to the ``winning'' worker for shading. By distributing all
-of the shading assets (shaders, textures, and materials) to all workers, any
-worker would be capable of computing shading regardless of whether it was
-responsible for the terminating geometry.
+With respect to our existing implementation, some network hops could be
+avoided when the ray finishes traversing the top-level BVH but ends up on a
+worker that is not the point of intersection.  Because the worker has no
+shading assets for the terminating geometry, it must pass the ray back to the
+``winning'' worker for shading. By distributing all of the shading assets
+(shaders, textures, and materials) to all workers, any worker would be capable
+of computing shading regardless of whether it was responsible for the
+terminating geometry.
 
 Memory optimizations, such as object pooling, could exploit the transient nature
 of many fixed-size fat rays to reduce allocation overhead and heap fragmentation.
-In addition, the linear BVH nodes structures were intentionally padded to
-64-bytes to match the cache line size on current CPUs. However without a custom
+In addition, the linear BVH node structures were intentionally padded to
+64-bytes to match the cache line size on current CPUs. However without an aligned
 STL allocator for the vector that stores this array of nodes, cache alignment
-is not guaranteed.
+is not guaranteed. Additionally, greater code optimization (e.g. use of SIMD
+instructions) could also improve performance.
 
 Finally, one of FlexRender's strengths is that it decouples the ray tracing
-computations at the level of the individual ray. Because workers are never
-waiting on other workers for the results of a computation, this opens up the
-possibility for batching data to a GPU worker.
+computations from shading with a feed-forward design that requires no replies.
+Because messages are both asynchronous and never return, this opens up the
+possibility for batching computation to specialized hardware coprocessors, such
+as GPUs or the upcoming Intel MIC cards.
 
 %\vfill
 \bibliographystyle{apalike}

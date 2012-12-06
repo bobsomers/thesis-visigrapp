@@ -10,6 +10,7 @@ $(PDF): $(TEXSRC) $(BIBFILE)
 	bibtex $(TARGET)
 	pdflatex $(TARGET).tex
 	pdflatex $(TARGET).tex
+	pdflatex $(TARGET).tex
 
 clean:
 	rm *.ps $(TARGET).pdf *.dvi *.log *.aux *.bbl *.blg *.bak *.lof *.lot *.out *.toc

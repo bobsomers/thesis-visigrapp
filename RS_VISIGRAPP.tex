@@ -118,7 +118,7 @@ order of magnitude better than image plane decomposition for commodity machines,
 and can naturally self-regulate the cluster of workers to keep the memory
 overhead due to message queuing around 1\% of each worker's main memory.
 
-It's important to remember that FlexRender is an experimental and incomplete
+It is important to remember that FlexRender is an experimental 
 design, and some of our design goals worked better than others. In the hopes of
 making future experimentation easier for others, we provide the complete
 source code of FlexRender at http://www.flexrender.org.
@@ -141,7 +141,7 @@ radiometry model of light:
         never do so with more energy than it started with.
 \end{description}
 
-FlexRender exploits these observations in the following ways:
+\noindent FlexRender exploits these observations in the following ways:
 
 \begin{description}
     \item[The location of computation does not matter.] If the scene is
@@ -201,13 +201,13 @@ dividing up the 1D Morton code address space among all the machines participatin
 in the render gives a reasonable assurance of spatial locality for the geometry
 sent to each machine.
 
-The Morton coding is also simple to implement. For example, say that we wish to
+The Morton coding is also simple to implement. For example, to
 map a point $P$ in a region of 3D space (defined by its bounding extents
-$min$ and $max$) to a Morton-coded 64-bit integer. Discretizing each axis evenly
+$min$ and $max$) to a Morton-coded 64-bit integer, discretizing each axis evenly
 allows for 21 bits per axis, yielding a 63-bit address space (and one unused bit
 in the integer). We compute the Morton code by calculating the 21-bit
 discretized component of $P$ along each axis, then shifting the components from
-each axis into the 64-bit integer one bit at a time in a round robin fashion, from the
+each axis into the 64-bit integer one bit at a time from the
 most-significant to least-significant bit.
 
 \section{Related Work}
@@ -217,14 +217,13 @@ A number of algorithms are designed to completely avoid large amounts of
 geometry altogether. Displacement maps \cite{krishnamurthy:1996} and normal
 maps using texture data \cite{cohen:1998} and \cite{cignoni:1998} are commonly
 used, especially in real-time applications. However, normal mapping displays
-visual artifacts, particularly around the edges of the mesh (where it is clearly
-apparent the surface is not high detail) or in areas where the texture is
-scrunched or stretched. Similarly, level of detail is commonly used to replace
+visual artifacts, particularly around the edges of the mesh or in areas where the texture is
+stretched or compressed. Similarly, level of detail is commonly used to replace
 high resolution meshes with lower resolution versions when they are far enough
 away from the viewer \cite{clark:1976}. However, it requires the creation of
 multiple resolution meshes and algorithms to smoothly handle resolution changes.
 
-More recently, \cite{djeu:2006} provides a framework for efficiently tracing
+More recently, \cite{djeu:2011} provides a framework for efficiently tracing
 multiresolution geometry, but it has large memory requirements and is not
 applied to clusters of commodity machines. Similarly \cite{afra:2012} presents
 a voxel-based paging system designed for interactive use, but it requires an
@@ -238,7 +237,7 @@ a multithreaded environment. Efficient memory use is also the focus of
 ray evaluation in a cache-oblivious way. This approach would complement our
 method very well.
 
-The focus of \cite{reinhard:1999}, was developing a hybrid work scheduler which
+The focus of \cite{reinhard:1999}, was development of a hybrid work scheduler which
 would improve performance with more effective hardware utilization, but it had
 problems with high memory overhead. Earlier this year, \cite{navratil:2012}
 presented an improved approach which uses a dynamic scheduler to move work from
@@ -267,7 +266,7 @@ their use of hierarchical BVHs and ray queues to handle rays cast from shaders.
 However, the global ray queue is fairly memory intensive, potentially storing
 up to 32 million rays.
 
-Leveraging MapReduce \cite{dean:2004}, \cite{northam:2011} presented an
+Leveraging MapReduce \cite{dean:2004,northam:2011} presented an
 implementation of a ray tracer, but noted that sending large amounts of scene
 data to workers significantly slowed down processing. Their solution was to
 break the scene into small chunks and resolve the intersection tests in the
@@ -1123,8 +1122,8 @@ contributions in the following ways.
 \subsection{Future Work}
 \label{futurework}
 
-FlexRender could benefit from much of the specialized work detailed in the
-existing literature. Adding dynamic task scheduling as described in
+FlexRender could benefit from specialized tuning to scheduling and
+spatial distribution.  Specifically, adding dynamic task scheduling as described in
 \cite{navratil:2012} could dramatically improve performance, and adopting a
 more sophisticated spatial distribution method as described in
 \cite{badouel:1994} could also help with workload distribution.

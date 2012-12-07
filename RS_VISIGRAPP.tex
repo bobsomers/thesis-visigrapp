@@ -266,13 +266,13 @@ their use of hierarchical BVHs and ray queues to handle rays cast from shaders.
 However, the global ray queue is fairly memory intensive, potentially storing
 up to 32 million rays.
 
-Leveraging MapReduce \cite{dean:2004,northam:2011} presented an
-implementation of a ray tracer, but noted that sending large amounts of scene
-data to workers significantly slowed down processing. Their solution was to
-break the scene into small chunks and resolve the intersection tests in the
-reduce step. Unfortunately, this does a lot of unnecessary work, because many
-non-winning intersections are computed that would have been pruned in a typical
-BVH traversal.
+Leveraging MapReduce \cite{dean:2004}, an implementation of a ray tracer was
+presented by \cite{northam:2011}, but sending large amounts of scene data to
+workers significantly slowed down processing. Their solution was to break the
+scene into small chunks and resolve the intersection tests in the reduce step.
+Unfortunately, this does a lot of unnecessary work, because many non-winning
+intersections are computed that would have been pruned in a typical BVH
+traversal.
 
 \section{FlexRender Architecture}
 \label{architecture}
